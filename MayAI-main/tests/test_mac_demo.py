@@ -5,8 +5,8 @@ STDIO zero trust demo: MAC + persistent agent trust.
     $env:MAYAI_ADMIN_KEY = "<관리자 키>"      # or --admin-key
     python tests/test_mac_demo.py     # add --step to advance one step per Enter
 
-Each run registers a fresh demo agent (clearance L2): a quarantined agent can
-never be reset to a clean state, which is exactly what the demo shows.
+Each run registers a fresh demo agent (clearance L2), demonstrates MAC,
+then manually quarantines the agent to test the effect on a fresh process.
 One agent run = this process, so all calls share one MAC session (agent:pid). Every
 "server" is tests/test_mcp_server.py --stdio under a different --server-name:
 
@@ -48,12 +48,8 @@ SCENARIO = [
     (SEND, "새 세션(L1): L1 외부 전송 가능"),
     (READ, "L2 문서 읽기 -> 세션 등급 L2"),
     (WRITE, "같은 등급(L2) 쓰기 가능"),
-    (SEND, "MAC 하위 유출 금지 -> 위반 1·유출 1 -> 의심(SUSPICIOUS)으로 자동 전환"),
-    (WRITE, "의심 상태: MAC은 허용해도 쓰기 금지 (권한 축소)"),
-    (READ, "의심 상태라도 L2 이하 읽기는 가능"),
-    (SECRET, "MAC 상위 등급 금지 (L3 > 허가 L2) -> 위반 2"),
-    (SEND, "유출 시도 2회 -> 침해(COMPROMISED): 세션·토큰 폐기"),
-    (READ, "격리됨: 모든 요청 차단"),
+    (SEND, "MAC 하위 등급 유출 차단"),
+    (SECRET, "MAC 상위 등급 접근 차단 (L3 > 허가 L2)"),
 ]
 
 
@@ -132,9 +128,7 @@ def verdict(reply: dict) -> str:
 def state(api: Api, agent: str) -> str:
     row = next(r for r in api.call("GET", "/api/trust") if r["agent_id"] == agent)
     level = max((s["level"] for s in row["sessions"] if not s["revoked"]), default=None)
-    return (f"신뢰={row['trust_status']}" + (f"/{row['recovery_status']}" if row["recovery_status"] != "NONE" else "")
-            + f" 위반={row['violation_count']} 유출={row['exfil_count']}"
-            + (f" 세션=L{level}" if level else " 세션=없음/폐기"))
+    return f"신뢰={row['trust_status']}" + (f" 세션=L{level}" if level else " 세션=없음/폐기")
 
 
 def main() -> int:
@@ -170,13 +164,13 @@ def main() -> int:
         print(f"{n}. stdio:{server:6} {tool:12} -> {result}\n   ({why})\n   [{state(api, agent)}]", flush=True)
 
     if o.step:
-        input("[Enter] 10단계: 에이전트 재시작 ")
-    print("\n10. 에이전트 재시작 = 새 프로세스 = 재인증·새 세션 요청")
+        input("[Enter] 데모 에이전트 격리 ")
+    api.call("POST", f"/api/trust/{agent}/quarantine", {"approver": "MAC demo", "reason": "격리 동작 확인"})
+    print(f"\n격리 조치 후 [{state(api, agent)}]")
     child = subprocess.run([sys.executable, __file__, "--single", agent, token, "docs", "fetch_page"],
                            capture_output=True, text=True, encoding="utf-8")
-    print(f"   stdio:docs   fetch_page   -> {child.stdout.strip()}\n   (재인증 성공 != 신뢰 회복)")
-    print(f"\n대시보드 '에이전트 신뢰' 탭에서 {agent}의 상태·감사 로그를 확인하고,"
-          " 복구 요청 -> 토큰 재설정 -> 복구 승인 순서로 되돌려 보세요.")
+    print(f"   새 프로세스의 호출 -> {child.stdout.strip()}")
+    print(f"\n대시보드의 에이전트 메뉴에서 {agent}의 토큰을 재설정한 뒤 신뢰 상태 관리에서 격리를 해제하세요.")
     return 0
 
 
