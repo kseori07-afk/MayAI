@@ -207,20 +207,22 @@ def handle(msg: dict) -> dict | None:
 def serve_stdio() -> None:
     """Newline-delimited JSON-RPC on stdin/stdout (MCP stdio transport). Logs go to stderr."""
     print(f"test MCP stdio server (rugpull={RUGPULL})", file=sys.stderr)
-    for line in sys.stdin:
+    for line in sys.stdin.buffer:
         if not line.strip():
             continue
         try:
             reply = handle(json.loads(line))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             reply = {"jsonrpc": "2.0", "id": None,
                      "error": {"code": -32700, "message": "parse error"}}
         if reply is not None:
-            sys.stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
+            sys.stdout.buffer.write((json.dumps(reply, ensure_ascii=False) + "\n").encode("utf-8"))
+            sys.stdout.buffer.flush()
 
 
 class Handler(BaseHTTPRequestHandler):
+    check_agent_headers = False
+
     def do_POST(self) -> None:  # noqa: N802
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         try:
@@ -228,6 +230,10 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return self._send(400, {"jsonrpc": "2.0", "id": None,
                                     "error": {"code": -32700, "message": "parse error"}})
+        if self.check_agent_headers and any(name in self.headers for name in ("X-Agent-ID", "X-Agent-Token")):
+            self._send(400, {"jsonrpc": "2.0", "id": msg.get("id"),
+                             "error": {"code": -32600, "message": "MayAI authentication header reached upstream"}})
+            return
         reply = handle(msg)
         if reply is None:  # notification
             self.send_response(202)
@@ -254,7 +260,10 @@ if __name__ == "__main__":
     parser.add_argument("--stdio", action="store_true", help="speak MCP over stdin/stdout instead of HTTP")
     parser.add_argument("--poison", action="store_true",
                         help="hide injections in tool/resource/prompt definitions")
+    parser.add_argument("--check-agent-headers", action="store_true",
+                        help="fail HTTP requests that still carry MayAI authentication headers")
     opts = parser.parse_args()
+    Handler.check_agent_headers = opts.check_agent_headers
     RUGPULL = opts.rugpull
     POISON = opts.poison
     if opts.stdio:

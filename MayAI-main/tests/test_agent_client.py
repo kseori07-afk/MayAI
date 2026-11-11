@@ -38,6 +38,8 @@ def main() -> int:
     p.add_argument("--agent", default="agent-001")
     p.add_argument("--token", default="secret")
     p.add_argument("--target", default="127.0.0.1:9100", help="MCP server host:port")
+    p.add_argument("--path", default="/mcp", help="HTTP endpoint path and optional query")
+    p.add_argument("--timeout", type=float, default=120, help="response timeout in seconds")
     p.add_argument("--proxy", default="127.0.0.1:8080", help="MayAI mitmproxy host:port")
     p.add_argument("--no-proxy", action="store_true")
     p.add_argument("--id", type=int, default=1)
@@ -45,12 +47,24 @@ def main() -> int:
                    help="STDIO mode: launch 'MayAI.py stdio --server-name SERVER_NAME' wrapping "
                         "'test_mcp_server.py --stdio' (policy target = stdio:SERVER_NAME)")
     p.add_argument("--rugpull", action="store_true", help="STDIO mode: start the server with --rugpull")
+    p.add_argument("--poison", action="store_true", help="STDIO mode: start the server with --poison")
     o = p.parse_args()
+    if o.timeout <= 0:
+        p.error("--timeout must be positive")
+    if not o.path.startswith("/") or o.path.startswith("//"):
+        p.error("--path must start with a single /")
 
     params: dict = {}
-    arguments = json.loads(o.args)
+    try:
+        arguments = json.loads(o.args)
+    except json.JSONDecodeError:
+        p.error("--args must be a JSON object")
+    if not isinstance(arguments, dict):
+        p.error("--args must be a JSON object")
     for item in o.arg:
-        key, _, value = item.partition("=")
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            p.error("-a expects KEY=VALUE")
         arguments[key] = value
     if o.method in ("tools/call", "prompts/get"):
         if not o.tool:
@@ -64,53 +78,64 @@ def main() -> int:
     headers = {"Content-Type": "application/json", "Accept": "application/json",
                "X-Agent-ID": o.agent, "X-Agent-Token": o.token}
 
-    if o.stdio:
-        return send_stdio(o, body)
-    if o.no_proxy:
-        host, port = o.target.rsplit(":", 1)
-        conn = http.client.HTTPConnection(host, int(port), timeout=10)
-        conn.request("POST", "/mcp", body, headers)
-    else:
-        host, port = o.proxy.rsplit(":", 1)
-        conn = http.client.HTTPConnection(host, int(port), timeout=10)
-        conn.request("POST", f"http://{o.target}/mcp", body, headers)  # absolute URL = proxy form
-    resp = conn.getresponse()
-    text = resp.read().decode("utf-8", "replace")
-    print(f"HTTP {resp.status}")
     try:
-        print(json.dumps(json.loads(text), ensure_ascii=False, indent=2))
-    except json.JSONDecodeError:
-        print(text)
-    return 0 if resp.status < 400 else 1
+        if o.stdio:
+            flags = [flag for flag, enabled in (("--rugpull", o.rugpull), ("--poison", o.poison)) if enabled]
+            reply = stdio_exchange(o.agent, o.token, o.stdio, body, o.id, timeout=o.timeout, flags=flags)
+            status = "OK" if reply_ok(reply, o.id) else "ERROR"
+            print(f"STDIO {status}")
+            print(json.dumps(reply, ensure_ascii=False, indent=2))
+            return 0 if status == "OK" else 1
 
-
-def send_stdio(o: argparse.Namespace, body: str) -> int:
-    """Act as an MCP stdio client: spawn the MayAI STDIO proxy (which spawns the
-    test server), write one JSON-RPC line, read one reply line."""
-    here = Path(__file__).resolve().parent
-    server = [sys.executable, str(here / "test_mcp_server.py"), "--stdio"]
-    if o.rugpull:
-        server.append("--rugpull")
-    cmd = [sys.executable, str(here.parent / "MayAI.py"), "stdio", "--server-name", o.stdio, "--", *server]
-    env = dict(os.environ, MAYAI_AGENT_ID=o.agent, MAYAI_AGENT_TOKEN=o.token)
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-    try:
-        proc.stdin.write(body.encode() + b"\n")
-        proc.stdin.flush()
-        line = proc.stdout.readline().decode("utf-8", "replace")
-    finally:
-        proc.stdin.close()
+        address = o.target if o.no_proxy else o.proxy
+        host, port = address.rsplit(":", 1)
+        path = o.path if o.no_proxy else f"http://{o.target}{o.path}"
+        conn = http.client.HTTPConnection(host, int(port), timeout=o.timeout)
         try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    if not line:
-        print("no reply from the STDIO proxy (see the error above)")
+            conn.request("POST", path, body, headers)
+            resp = conn.getresponse()
+            text = resp.read().decode("utf-8", "replace")
+            print(f"HTTP {resp.status}")
+            try:
+                reply = json.loads(text)
+            except json.JSONDecodeError:
+                print(text)
+                return 1
+            print(json.dumps(reply, ensure_ascii=False, indent=2))
+            return 0 if resp.status < 400 and reply_ok(reply, o.id) else 1
+        finally:
+            conn.close()
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        print(f"테스트 요청 실패: {exc}", file=sys.stderr)
         return 1
-    reply = json.loads(line)
-    print(f"STDIO {'ERROR' if 'error' in reply else 'OK'}")
-    print(json.dumps(reply, ensure_ascii=False, indent=2))
-    return 1 if "error" in reply else 0
+
+
+def reply_ok(reply: object, request_id: int) -> bool:
+    return isinstance(reply, dict) and reply.get("id") == request_id and "result" in reply and "error" not in reply
+
+
+def stdio_exchange(agent: str, token: str, server_name: str, body: str, request_id: int, *,
+                   timeout: float = 120, flags: tuple[str, ...] | list[str] = ()) -> dict:
+    here = Path(__file__).resolve().parent
+    server = [sys.executable, str(here / "test_mcp_server.py"), "--stdio", *flags]
+    cmd = [sys.executable, str(here.parent / "MayAI.py"), "stdio", "--server-name", server_name, "--", *server]
+    env = dict(os.environ, MAYAI_AGENT_ID=agent, MAYAI_AGENT_TOKEN=token)
+    # Close stdin while collecting stdout. This also gives one-shot Windows
+    # clients a finite timeout when response inspection is slow.
+    proc = subprocess.run(cmd, input=(body + "\n").encode("utf-8"), capture_output=True, env=env, timeout=timeout)
+    unmatched = None
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        message = json.loads(line)
+        if isinstance(message, dict) and "id" in message and "method" not in message:
+            if message["id"] == request_id:
+                return message
+            if unmatched is None:
+                unmatched = message
+    if unmatched is not None:
+        return unmatched
+    raise RuntimeError(f"STDIO 응답이 없습니다. {proc.stderr.decode('utf-8', 'replace').strip()}")
 
 
 if __name__ == "__main__":

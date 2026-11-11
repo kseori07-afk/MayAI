@@ -10,29 +10,28 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400..700&amp;family=Noto+Sans+KR:wght@400..700&amp;display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0B1428; --panel: #10203B; --panel-2: #0E1A33; --line: #1E3355;
     --ink: #DCE6F5; --dim: #7C93B8;
     --cyan: #33E1ED; --allow: #35D6A4; --deny: #FF6B7D; --amber: #F2B857;
     --sev-high: #FF2E2E; --sev-medium: #FFD60A;
-    --disp: "Chakra Petch", system-ui, sans-serif;
-    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --sans: "Inter", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", "Noto Sans KR", "Malgun Gothic", ui-monospace, monospace;
     --on-accent: #0B1428; --shadow: rgba(0,0,0,.55); --shadow-soft: rgba(0,0,0,.45);
     color-scheme: dark;
   }
-  /* 화이트 모드: 흰 배경 + 오렌지(#FE5A2C) 포인트. 색상 토큰만 바꾸고 레이아웃은 그대로 둔다. */
   :root[data-theme="light"] {
-    --bg: #FFFFFF; --panel: #FFF6F2; --panel-2: #FAFAFA; --line: #ECDCD5;
-    --ink: #1F2328; --dim: #6B6F76;
-    --cyan: #FE5A2C; --allow: #13865F; --deny: #C8283C; --amber: #B26A00;
-    --sev-high: #D0182B; --sev-medium: #C99400;
-    --on-accent: #FFFFFF; --shadow: rgba(60,30,20,.18); --shadow-soft: rgba(60,30,20,.14);
+    --bg: #f5f2ed; --panel: #ffffff; --panel-2: #f6f2ed; --line: #e4dbd2;
+    --ink: #29231f; --dim: #675c54;
+    --cyan: #b83c19; --accent-fill: #fe5a2c; --button-fill: #d63d0c; --allow: #176d50; --deny: #b62c42; --amber: #865600;
+    --sev-high: #ad2539; --sev-medium: #855600;
+    --on-accent: #ffffff; --shadow: rgba(55,39,26,.16); --shadow-soft: rgba(55,39,26,.10);
     color-scheme: light;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 13px/1.5 var(--mono); word-break: keep-all; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--sans); word-break: keep-all; }
   a { color: var(--cyan); }
   :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
@@ -41,15 +40,20 @@
   .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px clamp(10px, 1.6vw, 22px);
     padding: 7px clamp(12px, 2.5vw, 20px); min-height: 52px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
   .bar > :not(nav) { flex-shrink: 0; }
-  .mark { font: 700 16px/1 var(--disp); letter-spacing: .14em; color: var(--ink); white-space: nowrap; }
+  .mark { font: 700 16px/1 var(--sans); letter-spacing: .14em; color: var(--ink); white-space: nowrap; }
   .mark b { color: var(--cyan); font-weight: 700; }
-  .live { display: flex; align-items: center; gap: 7px; font: 500 11px/1 var(--disp);
+  .live { display: flex; align-items: center; gap: 7px; font: 500 12px/1.3 var(--sans);
     letter-spacing: .1em; color: var(--dim); }
   .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
     background: var(--allow); box-shadow: 0 0 8px var(--allow); }
   .live.down::before { background: var(--deny); box-shadow: 0 0 8px var(--deny); }
+  .live-controls { display: flex; align-items: center; gap: 8px; }
+  .auto-refresh[aria-pressed="true"] { color: var(--allow);
+    border-color: color-mix(in srgb, var(--allow) 42%, var(--line)); }
+  .auto-updated { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .auto-updated.failed { color: var(--deny); }
   .theme-toggle { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px;
-    color: var(--dim); font: 500 11px/1 var(--disp); letter-spacing: .06em; cursor: pointer; white-space: nowrap; }
+    color: var(--dim); font: 500 12px/1.3 var(--sans); letter-spacing: .06em; cursor: pointer; white-space: nowrap; }
   .theme-toggle:hover { color: var(--ink); }
   .theme-toggle .track { position: relative; width: 38px; height: 20px; border-radius: 999px;
     background: var(--panel); border: 1px solid var(--line); transition: background .2s ease; }
@@ -72,7 +76,7 @@
   nav.fade-l.fade-r { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
   nav button { display: flex; flex-shrink: 0; align-items: center; gap: 7px; background: none; border: 0;
-    color: var(--dim); font: 500 12px/1 var(--disp); letter-spacing: .06em; white-space: nowrap;
+    color: var(--dim); font: 600 13px/1.35 var(--sans); white-space: nowrap;
     padding: 8px 12px; border-radius: 4px; cursor: pointer; transition: background .15s ease, color .15s ease; }
   nav button svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; }
   nav button:hover { color: var(--ink); }
@@ -82,19 +86,43 @@
   section { display: none; }
   section.on { display: block; }
 
-  .head { font: 600 18px/1.2 var(--disp); letter-spacing: .04em; margin: 0 0 4px; }
-  .sub { color: var(--dim); font-size: 12px; line-height: 1.7; margin: 0 0 16px; }
+  .head { font: 700 22px/1.3 var(--sans); letter-spacing: -.02em; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 14px; line-height: 1.7; margin: 0 0 16px; }
   .tools { display: flex; gap: 8px; align-items: center; margin: 0 0 14px; flex-wrap: wrap; }
-  .link-danger { background: none; border: 0; color: var(--deny); font: 400 11px/1 var(--mono);
+  .link-danger { background: none; border: 0; color: var(--deny); font: 500 12px/1.35 var(--sans);
     cursor: pointer; opacity: .8; }
   .link-danger:hover { opacity: 1; text-decoration: underline; }
   .link-danger:disabled { opacity: .3; cursor: not-allowed; text-decoration: none; }
   .ghost { background: none; border: 1px solid var(--line); color: var(--dim);
-    font: 500 11px/1 var(--disp); letter-spacing: .05em; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+    font: 500 12px/1.3 var(--sans); letter-spacing: .05em; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
   .ghost:hover { color: var(--ink); border-color: var(--cyan); }
 
   /* ---- command wall (Feed only) ---- */
-  .wall { display: grid; grid-template-columns: minmax(170px, 200px) minmax(0, 1fr); gap: 14px; margin: 0 0 20px; }
+  .traffic-overview { margin: 0 0 20px; padding: clamp(14px, 2vw, 24px); border: 1px solid var(--line);
+    border-radius: 16px; background: radial-gradient(ellipse at 90% 0%,
+      color-mix(in srgb, var(--cyan) 14%, transparent), transparent 65%), var(--panel-2); }
+  .traffic-overview .head { font-size: clamp(22px, 3vw, 34px); }
+  .traffic-overview .sub { margin-bottom: 18px; }
+  .wall { display: grid; grid-template-columns: minmax(145px, 190px) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 580px) { .wall { grid-template-columns: minmax(0, 1fr); } }
+  .traffic-overview .tile { --metric: var(--cyan); border-top: 2px solid var(--metric);
+    background: linear-gradient(165deg, color-mix(in srgb, var(--metric) 10%, var(--panel)), var(--panel) 75%); }
+  .traffic-overview .tile.allow { --metric: var(--allow); }
+  .traffic-overview .tile.deny { --metric: var(--deny); }
+  .traffic-overview .tile.events { --metric: var(--amber); }
+  .tile .row1 { overflow: hidden; text-overflow: ellipsis; }
+  .strip i { opacity: .8; }
+  .strip i:last-child { opacity: 1; box-shadow: 0 0 10px currentColor; }
+  .strip i.d { color: var(--deny); }
+  .strip i:not(.d) { color: var(--allow); }
+  @keyframes new-traffic {
+    from { background: color-mix(in srgb, var(--cyan) 19%, transparent); }
+    to { background: transparent; }
+  }
+  .new-traffic { animation: new-traffic 1.8s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .new-traffic, .gauge .val { animation: none; transition: none; }
+  }
   .gauge { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   .gauge svg { width: 128px; height: 128px; transform: rotate(-90deg); }
@@ -102,35 +130,35 @@
   .gauge .val { stroke: var(--allow); stroke-linecap: round;
     transition: stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1); }
   .gauge figcaption { margin-top: 10px; text-align: center; }
-  .gauge .pct { font: 700 26px/1 var(--disp); color: var(--ink); }
-  .gauge .lbl { font-size: 11px; color: var(--dim); }
+  .gauge .pct { font: 700 26px/1 var(--sans); color: var(--ink); }
+  .gauge .lbl { font-size: 12px; color: var(--dim); }
   .wall-right { display: flex; flex-direction: column; gap: 14px; }
   /* 4칸 → 2칸 (3+1처럼 한 칸만 남는 배치가 생기지 않게 미디어쿼리로 끊는다) */
   .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   @media (max-width: 1000px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
-  .tile .row1 { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .tile .row1 { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; white-space: nowrap; }
   .tile .row1 svg { flex-shrink: 0; width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.6; }
-  .tile .n { font: 700 clamp(22px, 2.2vw, 30px)/1.1 var(--disp); color: var(--ink); margin-top: 6px; }
+  .tile .n { font: 700 clamp(22px, 2.2vw, 30px)/1.1 var(--sans); color: var(--ink); margin-top: 6px; }
   .tile.allow .n { color: var(--allow); } .tile.deny .n { color: var(--deny); }
   .tile.events .n { color: var(--amber); } .tile.events .row1 { color: var(--amber); }
   .strip-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
-  .strip-wrap .cap { color: var(--dim); font-size: 11px; margin-bottom: 10px; }
+  .strip-wrap .cap { color: var(--dim); font-size: 12px; margin-bottom: 10px; }
   .strip { display: flex; gap: 2px; align-items: flex-end; height: 42px; }
   .strip i { flex: 1; height: 100%; border-radius: 1px; background: var(--allow); min-width: 2px; }
   .strip i.d { background: var(--deny); }
-  .strip.empty { color: var(--dim); font-size: 12px; height: auto; }
+  .strip.empty { color: var(--dim); font-size: 13px; height: auto; }
 
   /* ---- tables ---- */
   .wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px;
     scrollbar-color: var(--line) var(--panel-2); }
   table { width: 100%; border-collapse: collapse; }
-  th { position: relative; text-align: left; font: 500 11px/1 var(--disp); letter-spacing: .07em; color: var(--dim);
+  th { position: relative; text-align: left; font: 600 12px/1.35 var(--sans); color: var(--dim);
     padding: 11px 12px; background: var(--panel-2); border-bottom: 1px solid var(--line);
     white-space: nowrap; }
   /* the last column's resize handle must not poke past the table edge (it caused a needless scrollbar) */
   th:last-child .col-resizer { right: 0; }
-  td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 12px; vertical-align: top;
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top;
     overflow-wrap: normal; word-break: keep-all; }
   tr:last-child td { border-bottom: 0; }
   tbody tr:hover { background: var(--panel); }
@@ -141,13 +169,14 @@
   th:hover .col-resizer::after, .col-resizer.dragging::after { border-color: var(--cyan); }
   .id { color: var(--cyan); }
   .dim { color: var(--dim); }
-  .comp { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; white-space:nowrap;
+  .comp { display:inline-block; padding:1px 8px; border-radius:999px; font-size: 13px; white-space:nowrap;
     color: var(--c); border:1px solid color-mix(in srgb, var(--c) 45%, transparent);
     background: color-mix(in srgb, var(--c) 12%, transparent); }
-  .obj { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+  .obj { font-family: var(--mono); font-size: 13px; }
   .tok { white-space: nowrap; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .sub-line { display: block; color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .log-number { font-variant-numeric: tabular-nums; }
+  .sub-line { display: block; color: var(--dim); font-size: 12px; margin-top: 3px; }
   .nowrap { white-space: nowrap; }
   td.summary { width: 34%; min-width: 220px; white-space: pre-wrap; color: var(--ink); }
   td.verdict { min-width: 150px; }
@@ -164,16 +193,17 @@
   .detail-dialog dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
   .detail-dialog dt { color: var(--dim); }
   .detail-dialog dd { margin: 0; overflow-wrap: anywhere; }
-  #traffic-detail pre { max-height: 35vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  #traffic-detail pre { font-family: var(--mono); max-height: 35vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
     border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(210px,100%),1fr)); gap: 10px; margin: 14px 0; }
   .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 5px; background: var(--panel); }
   .card span,.card small { color: var(--dim); overflow-wrap: break-word; }
+  #ml-status:empty { display: none; }
   .card strong { font-size: 20px; }
   .risk-hi { color: var(--deny); font-weight: 500; }
   .ok { color: var(--allow); }
   .risk-md { color: var(--amber); }
-  .stamp { display: inline-block; white-space: nowrap; font: 500 11px/1 var(--mono); letter-spacing: .1em;
+  .stamp { display: inline-block; white-space: nowrap; font: 600 12px/1.3 var(--sans);
     padding: 4px 7px; border-radius: 3px; border: 1px solid; }
   .stamp.allow { color: var(--allow); border-color: color-mix(in srgb, var(--allow) 40%, transparent);
     background: color-mix(in srgb, var(--allow) 12%, transparent); }
@@ -184,7 +214,7 @@
   form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 0 0 18px; }
   input, select { background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
-    font: 400 12px/1 var(--mono); padding: 8px 10px; border-radius: 4px; max-width: 100%; }
+    font: 400 14px/1.35 var(--sans); padding: 8px 10px; border-radius: 4px; max-width: 100%; }
   input::placeholder { color: var(--dim); }
   input:focus::placeholder { color: transparent; }
   form input[data-suggest] { width: 260px; }
@@ -193,27 +223,27 @@
     background: var(--panel-2); border: 1px solid var(--cyan); border-radius: 4px; padding: 4px 0;
     box-shadow: 0 8px 24px var(--shadow-soft); }
   .suggest[hidden] { display: none; }
-  .suggest div { padding: 7px 10px; cursor: pointer; font-size: 12px; display: flex; gap: 10px; justify-content: space-between; }
+  .suggest div { padding: 7px 10px; cursor: pointer; font-size: 13px; display: flex; gap: 10px; justify-content: space-between; }
   .suggest div small { color: var(--dim); }
   .suggest div.on, .suggest div:hover { background: color-mix(in srgb, var(--cyan) 18%, transparent); }
   .suggest .all { color: var(--cyan); border-bottom: 1px solid var(--line); }
   form.editing { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber) inset; }
-  .edit-note { color: var(--amber); font-size: 11px; }
+  .edit-note { color: var(--amber); font-size: 12px; }
   tr.editing-row td { background: color-mix(in srgb, var(--amber) 10%, transparent); }
   .primary { background: var(--cyan); border: 1px solid var(--cyan); color: var(--on-accent);
-    font: 600 12px/1 var(--disp); letter-spacing: .05em; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    font: 600 14px/1.35 var(--sans); padding: 8px 16px; border-radius: 4px; cursor: pointer; }
   .primary:hover { filter: brightness(1.1); }
   .cell-btn { background: none; border: 1px solid var(--line); color: var(--dim);
-    font: 400 11px/1 var(--mono); padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+    font: 500 12px/1.3 var(--sans); padding: 4px 8px; border-radius: 3px; cursor: pointer; }
   .cell-btn:hover { color: var(--ink); border-color: var(--cyan); }
   .cell-btn.d:hover { color: var(--deny); border-color: var(--deny); }
   td.actions { white-space: nowrap; }
   span.actions { display: inline-flex; gap: 4px; white-space: nowrap; }
   textarea { width: 100%; min-height: 96px; background: var(--panel-2); border: 1px solid var(--line);
     color: var(--ink); border-radius: 4px; font: 400 12px/1.5 var(--mono); padding: 10px; }
-  label.fld { color: var(--dim); font-size: 11px; }
+  label.fld { color: var(--dim); font-size: 12px; }
   .mac-field { display: grid; gap: 4px; width: 260px; max-width: 100%; }
-  #mac-label-form .mac-field :is(input, select) { width: 100%; box-sizing: border-box; }
+  .mac-field :is(input, select) { width: 100%; box-sizing: border-box; }
   #eval-out { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
     padding: 14px; font: 400 12px/1.5 var(--mono); color: var(--ink); white-space: pre-wrap;
     overflow-x: auto; min-height: 20px; }
@@ -223,13 +253,13 @@
   .step { display: grid; grid-template-columns: 26px 1fr; gap: 12px; background: var(--panel);
     border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
   .step-n { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); display: grid;
-    place-items: center; font: 600 12px/1 var(--disp); color: var(--dim); }
+    place-items: center; font: 600 12px/1 var(--sans); color: var(--dim); }
   .step.set .step-n { background: var(--cyan); border-color: var(--cyan); color: var(--on-accent); }
-  .step-t { font: 600 12px/1 var(--disp); letter-spacing: .06em; margin: 5px 0 10px; }
+  .step-t { font: 600 12px/1 var(--sans); letter-spacing: .06em; margin: 5px 0 10px; }
   .step-t span { color: var(--dim); font-weight: 400; margin-left: 6px; }
   .pills { display: flex; flex-wrap: wrap; gap: 6px; }
   .pill { background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
-    font: 500 12px/1 var(--mono); padding: 7px 11px; border-radius: 999px; cursor: pointer; }
+    font: 500 13px/1.3 var(--sans); padding: 7px 11px; border-radius: 999px; cursor: pointer; }
   .pill:hover { color: var(--ink); border-color: var(--cyan); }
   .pill.on { color: var(--on-accent); background: var(--cyan); border-color: var(--cyan); }
   .pill:disabled { opacity: .35; cursor: not-allowed; }
@@ -244,18 +274,18 @@
     border-color: var(--line); border-left-color: color-mix(in srgb, var(--sev) 80%, transparent);
     box-shadow: 0 14px 30px var(--shadow), 0 0 24px color-mix(in srgb, var(--sev) 30%, transparent); }
   @media (prefers-reduced-motion: reduce) { .rule { transition: none; } }
-  .rule .top { display: flex; justify-content: space-between; gap: 8px; font: 600 12px/1.3 var(--disp); }
+  .rule .top { display: flex; justify-content: space-between; gap: 8px; font: 600 12px/1.3 var(--sans); }
   .rule .n { font-variant-numeric: tabular-nums; color: var(--cyan); }
   .rule .n.zero { color: var(--dim); }
-  .rule .k { font: 500 10.5px/1.3 var(--mono); color: var(--dim); overflow-wrap: break-word; }
-  .rule p { margin: 0; color: var(--dim); font-size: 11.5px; }
-  .tag { display: inline-block; font: 500 11px/1.2 var(--mono); padding: 2px 6px; border-radius: 3px;
+  .rule .k { font: 500 12px/1.4 var(--sans); color: var(--dim); overflow-wrap: break-word; }
+  .rule p { margin: 0; color: var(--dim); font-size: 13px; }
+  .tag { display: inline-block; font: 500 12px/1.3 var(--sans); padding: 2px 6px; border-radius: 3px;
     border: 1px solid var(--line); color: var(--dim); margin: 2px 4px 0 0; }
-  .crumb { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 12px; font-size: 12px; }
+  .crumb { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 12px; font-size: 13px; }
   .crumb b { color: var(--cyan); font-weight: 500; }
   .crumb .sep { color: var(--dim); }
   .crumb .count { margin-left: auto; color: var(--dim); }
-  .chip { display: inline-block; font: 500 10.5px/1.4 var(--mono); padding: 1px 6px; border-radius: 3px;
+  .chip { display: inline-block; font: 500 12px/1.4 var(--sans); padding: 1px 6px; border-radius: 3px;
     margin: 1px 3px 1px 0; color: var(--sev); border: 1px solid color-mix(in srgb, var(--sev) 45%, transparent);
     background: color-mix(in srgb, var(--sev) 10%, transparent); }
 
@@ -279,18 +309,122 @@
     padding: 20px 22px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px var(--shadow); }
   #key-dialog::backdrop { background: rgba(0,0,0,.5); }
   #key-dialog form { border: 0; padding: 0; margin: 0; background: none; box-shadow: none; display: block; }
-  #key-dialog h3 { margin: 0 0 6px; font-family: var(--disp); font-size: 16px; }
-  #key-dialog p { margin: 0 0 12px; color: var(--dim); font-size: 12.5px; line-height: 1.55; }
+  #key-dialog h3 { margin: 0 0 6px; font-family: var(--sans); font-size: 16px; }
+  #key-dialog p { margin: 0 0 12px; color: var(--dim); font-size: 14px; line-height: 1.55; }
   #key-dialog input { width: 100%; box-sizing: border-box; }
-  #key-dialog .key-msg { min-height: 18px; margin: 8px 0 12px; font-size: 12.5px; }
+  #key-dialog .key-msg { min-height: 18px; margin: 8px 0 12px; font-size: 14px; }
   #key-dialog .key-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   #key-dialog .key-row .spacer { flex: 1; }
+  /* Light theme surfaces and emphasis */
+  :root[data-theme="light"] body {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #faf7f2 0, var(--bg) 280px);
+  }
+  :root[data-theme="light"] .bar {
+    background: var(--panel);
+    box-shadow: 0 2px 12px rgba(55, 39, 26, .06);
+  }
+  :root[data-theme="light"] nav button { border-radius: 8px; }
+  :root[data-theme="light"] nav button:hover { background: var(--panel-2); }
+  :root[data-theme="light"] nav button.on {
+    color: var(--cyan); background: #fff0e8;
+    box-shadow: inset 0 0 0 1px #f8c6b2;
+  }
+
+  :root[data-theme="light"] main { padding: clamp(14px, 2.5vw, 28px); }
+  :root[data-theme="light"] section > .head {
+    border-inline-start: 3px solid var(--cyan); padding-inline-start: 12px;
+  }
+  :root[data-theme="light"] :is(.wrap, main form, .step, .cards .card) {
+    background: var(--panel);
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(55, 39, 26, .04), 0 5px 16px rgba(55, 39, 26, .04);
+  }
+  :root[data-theme="light"] .traffic-overview {
+    background: radial-gradient(ellipse at 100% 0%, #ffe1d3, transparent 66%), #fff9f4;
+    box-shadow: 0 4px 20px rgba(55, 39, 26, .06);
+  }
+  :root[data-theme="light"] :is(.gauge, .strip-wrap, .traffic-overview .tile) {
+    border-radius: 12px;
+    box-shadow: 0 2px 5px rgba(55, 39, 26, .05);
+  }
+  :root[data-theme="light"] .strip-wrap {
+    flex: 1; display: flex; flex-direction: column; justify-content: center;
+  }
+  :root[data-theme="light"] :where(.primary, .step.set .step-n, .pill.on) {
+    background: var(--button-fill); border-color: var(--button-fill);
+  }
+  :root[data-theme="light"] .theme-toggle .knob { background: var(--accent-fill); }
+  :root[data-theme="light"] .primary:disabled {
+    background: var(--panel-2); border-color: var(--line); color: var(--dim);
+    cursor: not-allowed; filter: none;
+  }
+  :root[data-theme="light"] .wrap th { color: var(--ink); }
+  :root[data-theme="light"] tbody tr:nth-child(even) { background: #faf8f5; }
+  :root[data-theme="light"] tbody tr:hover { background: #fff0e7; }
+  :root[data-theme="light"] tbody td.dim[colspan] {
+    padding-block: 22px; text-align: center;
+  }
+  .brief-hero { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px;
+    padding: clamp(20px, 3vw, 38px); margin-bottom: 16px; border: 1px solid var(--line); border-radius: 16px;
+    background: radial-gradient(ellipse at 90% -15%, color-mix(in srgb, var(--cyan) 20%, transparent), transparent 65%), var(--panel-2); }
+  .brief-hero .head { font-size: clamp(27px, 3.6vw, 42px); }
+  .brief-hero .sub { margin: 8px 0 0; }
+  .brief-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .brief-metrics, .brief-links { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .brief-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .brief-card, .brief-panel { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .brief-card { display: grid; gap: 6px; align-content: start; padding: 14px 16px; text-align: start;
+    font: inherit; color: var(--ink); cursor: pointer; }
+  .brief-card:hover { border-color: var(--cyan); }
+  .brief-card .label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--dim); }
+  .brief-card .value { overflow-wrap: anywhere; font-weight: 700; }
+  .brief-metrics .value { font-size: clamp(24px, 3vw, 36px); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .brief-card small { color: var(--dim); }
+  .brief-columns { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 12px; margin: 14px 0; }
+  .brief-panel { padding: clamp(13px, 2vw, 20px); }
+  .brief-panel h2, .brief-links-title { margin: 0 0 10px; font-size: 16px; }
+  .brief-legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--dim); font-size: 12px; }
+  .brief-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px;
+    margin-inline-end: 6px; border-radius: 2px; background: var(--series); }
+  .brief-chart { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: clamp(2px, 1vw, 13px);
+    height: 112px; margin-top: 10px; border-bottom: 1px solid var(--line);
+    background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--line) calc(25% - 1px) 25%); }
+  .brief-bin { display: flex; align-items: end; justify-content: center; gap: 2px; }
+  .brief-bin i { flex: 1; max-width: 15px; border-radius: 3px 3px 0 0; background: var(--series); }
+  .brief-range { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; margin-top: 7px; }
+  #overview { --request-series: var(--cyan); --response-series: var(--allow); }
+  .brief-requests { --series: var(--request-series); }
+  .brief-responses { --series: var(--response-series); }
+  .brief-events { list-style: none; margin: 0; padding: 0; }
+  .brief-events li { display: flex; align-items: start; justify-content: space-between; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .brief-events li:last-child { border-bottom: 0; }
+  .brief-events small { display: block; color: var(--dim); }
+  .brief-events .severity { flex: none; font-size: 12px; }
+  :root[data-theme="light"] #overview { --request-series: var(--accent-fill); }
+  :root[data-theme="light"] .brief-hero { background: radial-gradient(ellipse at 100% 0%, #ffe1d3, transparent 66%), #fff9f4; }
+  :root[data-theme="light"] :is(.brief-card, .brief-panel) { box-shadow: 0 2px 9px rgba(55,39,26,.05); }
+  :root[data-theme="light"] .primary:not(:disabled):hover { background: #bd350b; border-color: #bd350b; filter: none; }
+  @media (max-width: 850px) {
+    .brief-metrics, .brief-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .brief-columns { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 420px) {
+    .brief-card { padding: 12px; }
+    .brief-links { grid-template-columns: minmax(0, 1fr); }
+  }
+
 </style>
 </head>
 <body>
 <div class="bar">
   <div class="mark"><b>MayAI</b></div>
   <div class="live" id="live">연결됨</div>
+  <div class="live-controls">
+    <button class="ghost auto-refresh" id="auto-refresh" type="button" aria-label="로그 자동 갱신" aria-pressed="true" title="보고 있는 로그 탭을 주기적으로 갱신합니다">자동 갱신</button>
+    <span class="auto-updated" id="auto-updated"></span>
+  </div>
   <button type="button" class="theme-toggle" id="theme-toggle" role="switch" aria-checked="false"
     aria-label="화이트 모드" onclick="toggleTheme()">
     <span class="track"><span class="knob"></span></span><span id="theme-label">다크 모드</span>
@@ -315,6 +449,37 @@
 </div>
 
 <main>
+  <section id="overview" class="on">
+    <div class="brief-hero">
+      <div>
+        <h1 class="head">보안 브리핑</h1>
+        <p class="sub">최근 24시간 트래픽과 현재 보안 상태</p>
+      </div>
+      <div class="brief-actions">
+        <button type="button" class="ghost" onclick="refreshLiveTab('overview')">새로고침</button>
+        <button type="button" class="primary" onclick="show('traffic')">트래픽 피드 열기</button>
+      </div>
+    </div>
+    <p id="brief-status" class="sub" role="status">현황을 불러오는 중…</p>
+    <div id="brief-content" hidden>
+      <div id="brief-metrics" class="brief-metrics"></div>
+      <div class="brief-columns">
+        <div class="brief-panel">
+          <h2>요청·응답 추이</h2>
+          <div class="brief-legend"><span class="brief-requests">요청</span><span class="brief-responses">응답</span></div>
+          <div id="brief-chart" class="brief-chart" role="img" aria-label="요청·응답 추이"></div>
+          <div class="brief-range" aria-hidden="true"><span>24시간 전</span><span>현재</span></div>
+        </div>
+        <div class="brief-panel">
+          <h2>최근 미처리 이벤트</h2>
+          <ul id="brief-events" class="brief-events"></ul>
+        </div>
+      </div>
+      <h2 class="brief-links-title">메뉴별 현황</h2>
+      <div id="brief-links" class="brief-links"></div>
+    </div>
+  </section>
+
   <section id="explore">
     <h1 class="head">탐색기</h1>
     <p class="sub">전송 방식 → 구성요소 → 방향 → 메서드 → 탐지 룰 순서로 고르세요.<br>단계를 고를수록 아래 트래픽이 좁혀지고, 그 경로에 적용되는 탐지 룰이 정리됩니다.</p>
@@ -323,35 +488,35 @@
     <div class="wrap"><table id="explore-t"></table></div>
   </section>
 
-  <section id="traffic" class="on">
-    <h1 class="head">트래픽 피드</h1>
-    <p class="sub">최근 요청·응답과 서버 알림을 시간순으로 보여줍니다. 행을 누르면 상세 정보를 볼 수 있습니다.</p>
-
-    <div class="wall">
-      <figure class="gauge">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>
-          <circle class="val" id="gauge-val" cx="60" cy="60" r="52" fill="none" stroke-width="10"
-            stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
-        </svg>
-        <figcaption><div class="pct" id="gauge-pct">&mdash;</div><div class="lbl">요청·응답 허용률 (최근 500건)</div></figcaption>
-      </figure>
-      <div class="wall-right">
-        <div class="tiles">
-          <div class="tile allow"><div class="row1"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><path d="M6 10l3 3 5-6"/></svg>허용</div><div class="n" id="k-allow">&mdash;</div></div>
-          <div class="tile deny"><div class="row1"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><path d="M7 7l6 6M13 7l-6 6"/></svg>차단</div><div class="n" id="k-deny">&mdash;</div></div>
-          <div class="tile events"><div class="row1"><svg viewBox="0 0 20 20"><path d="M5 3v14"/><path d="M5 4h9l-2 3 2 3H5"/></svg>미처리 이벤트</div><div class="n" id="k-events">&mdash;</div></div>
-          <div class="tile"><div class="row1"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="9" r="2"/><path d="M12 8h3M12 11h3M5 14c1-2 5-2 6 0"/></svg>에이전트</div><div class="n" id="k-agents">&mdash;</div></div>
-        </div>
-        <div class="strip-wrap">
-          <div class="cap">최근 요청·응답 판정 50건 &mdash; 오른쪽이 최신</div>
-          <div class="strip" id="strip"></div>
+  <section id="traffic">
+    <div class="traffic-overview">
+      <h1 class="head">트래픽 피드</h1>
+      <p class="sub">최근 요청·응답과 서버 알림을 시간순으로 보여줍니다. 행을 누르면 상세 정보를 볼 수 있습니다.</p>
+      <div class="wall">
+        <figure class="gauge">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>
+            <circle class="val" id="gauge-val" cx="60" cy="60" r="52" fill="none" stroke-width="10"
+              stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
+          </svg>
+          <figcaption><div class="pct" id="gauge-pct">&mdash;</div><div class="lbl">요청·응답 허용률 (최근 500건)</div></figcaption>
+        </figure>
+        <div class="wall-right">
+          <div class="tiles">
+            <div class="tile allow"><div class="row1"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><path d="M6 10l3 3 5-6"/></svg>허용</div><div class="n" id="k-allow">&mdash;</div></div>
+            <div class="tile deny"><div class="row1"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><path d="M7 7l6 6M13 7l-6 6"/></svg>차단</div><div class="n" id="k-deny">&mdash;</div></div>
+            <div class="tile events"><div class="row1"><svg viewBox="0 0 20 20"><path d="M5 3v14"/><path d="M5 4h9l-2 3 2 3H5"/></svg>미처리 이벤트</div><div class="n" id="k-events">&mdash;</div></div>
+            <div class="tile"><div class="row1"><svg viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="9" r="2"/><path d="M12 8h3M12 11h3M5 14c1-2 5-2 6 0"/></svg>에이전트</div><div class="n" id="k-agents">&mdash;</div></div>
+          </div>
+          <div class="strip-wrap">
+            <div class="cap">최근 요청·응답 판정 50건 &mdash; 오른쪽이 최신</div>
+            <div class="strip" id="strip"></div>
+          </div>
         </div>
       </div>
     </div>
-
     <div class="tools">
-      <button class="ghost" onclick="loadTraffic();loadWall()">새로고침</button>
+      <button class="ghost" onclick="refreshLiveTab('traffic')">새로고침</button>
       <span class="dim">최신 200건</span>
     </div>
     <div class="wrap"><table id="traffic-t"></table></div>
@@ -361,7 +526,7 @@
     <h1 class="head">요청</h1>
     <p class="sub">에이전트가 보낸 요청만 표시합니다. 허용·차단 조치는 이후 요청에 적용할 정책으로 저장됩니다.</p>
     <div class="tools">
-      <button class="ghost" onclick="loadRequests()">새로고침</button>
+      <button class="ghost" onclick="refreshLiveTab('requests')">새로고침</button>
       <button id="delete-selected-logs" class="link-danger" onclick="deleteSelected('logs')" disabled>선택 삭제</button>
       <span id="selected-count-logs" class="dim"></span>
       <button class="link-danger" onclick="delAll('logs')">로그 전체 삭제</button>
@@ -376,7 +541,7 @@
     <div class="tools">
       <label class="fld">응답 처리 모드</label>
       <select class="response-mode" aria-label="응답 처리 모드" onchange="setResponseMode(this.value)"><option value="MONITOR">모니터링 (MONITOR)</option><option value="ENFORCE">차단 (ENFORCE)</option></select>
-      <button class="ghost" onclick="loadResponses()">새로고침</button>
+      <button class="ghost" onclick="refreshLiveTab('responses')">새로고침</button>
     </div>
     <div class="wrap"><table id="responses-t"></table></div>
   </section>
@@ -475,17 +640,65 @@
   </section>
 
   <section id="mac">
-    <h1 class="head">MAC 보안 등급</h1>
+    <h1 class="head">파일 접근 제어</h1>
+    <p class="sub">보호 폴더의 파일에 보안 등급을 지정합니다. 에이전트는 허가 등급 이하의 파일을 읽을 수 있고, 읽은 데이터보다 낮은 등급의 파일에 쓸 수 없습니다.</p>
+    <p id="mac-file-status" class="sub" role="status"></p>
+    <form id="mac-file-form" onsubmit="saveMacFile(event)">
+      <div class="mac-field">
+        <label class="fld" for="mac-filename">파일 이름</label>
+        <input id="mac-filename" name="filename" placeholder="예: payroll.txt" required autocomplete="off">
+      </div>
+      <div class="mac-field">
+        <label class="fld" for="mac-file-level">파일 보안 등급</label>
+        <select id="mac-file-level" name="level">
+          <option value="1">L1 공개정보</option>
+          <option value="2" selected>L2 내부정보</option>
+          <option value="3">L3 제한정보</option>
+          <option value="4">L4 핵심기밀</option>
+        </select>
+      </div>
+      <button class="primary" data-label="파일 등록" disabled>파일 등록</button>
+      <button type="button" class="ghost edit-cancel" onclick="cancelEdit('mac-file')" hidden>취소</button>
+      <span class="edit-note"></span>
+    </form>
+    <div class="wrap"><table id="mac-files-t"></table></div>
+
+    <details class="agent-disclosure" id="mcp-mac-settings" hidden ontoggle="if (this.open) loadMac()">
+    <summary>MCP 도구 접근 제어</summary>
     <p class="sub">STDIO에서 도구·리소스·프롬프트에 적용됩니다. 에이전트 허가 등급보다 높은 대상에 접근하거나, 세션이 보유한 데이터보다 낮은 대상으로 쓰기·전송하면 차단됩니다.</p>
+    <details class="agent-disclosure" id="mcp-server-settings">
+      <summary>MCP 서버 등록 및 관리</summary>
+      <p class="sub">같은 MCP 서버의 STDIO 실행 이름과 HTTP(S) 접속 URL을 한 항목에 등록할 수 있습니다. 둘 중 하나만 입력해도 됩니다. HTTP(S)는 등록 URL과 일치하는 트래픽을 식별합니다.</p>
+      <form id="mcp-server-form" onsubmit="saveMcpServer(event)">
+        <div class="mac-field">
+          <label class="fld" for="mcp-server-name">서버 표시 이름</label>
+          <input id="mcp-server-name" name="name" placeholder="예: 급여 서버" required autocomplete="off">
+        </div>
+        <div class="mac-field">
+          <label class="fld" for="mcp-server-stdio">STDIO 실행 이름</label>
+          <input id="mcp-server-stdio" name="stdio_target" placeholder="예: hr-db (--server-name)" autocomplete="off">
+        </div>
+        <div class="mac-field">
+          <label class="fld" for="mcp-server-http">HTTP(S) 접속 URL</label>
+          <input id="mcp-server-http" name="http_url" placeholder="예: https://hr.example.com/mcp" autocomplete="off">
+        </div>
+        <button class="primary" data-label="서버 등록">서버 등록</button>
+        <button type="button" class="ghost edit-cancel" onclick="cancelEdit('mcp-server')" hidden>취소</button>
+        <span class="edit-note"></span>
+      </form>
+      <div class="wrap"><table id="mcp-servers-t"></table></div>
+    </details>
     <h2 class="head" style="font-size:15px;margin-top:26px">객체 등급 지정</h2>
-    <p class="sub">MCP 서버와 대상 유형을 고르고 이름 또는 URI를 입력하세요.
-      <code>query_*</code> 같은 패턴은 선택한 유형 안에서 적용됩니다.
-      기존 규칙은 목록에 ‘모든 유형’으로 표시됩니다. 등급을 지정하지 않은 대상은 L4 핵심기밀로 취급합니다.</p>
+    <p class="sub">등록된 MCP 서버와 대상 유형을 고르고 이름 또는 URI를 입력하세요. <code>query_*</code> 같은 패턴은 선택한 유형 안에서 적용됩니다. 등급을 지정하지 않은 대상은 L4 핵심기밀로 취급합니다.</p>
     <form id="mac-label-form" onsubmit="createMacLabel(event)">
       <input name="name" placeholder="표시 이름 (예: 급여 조회)" aria-label="표시 이름" required autocomplete="off">
       <div class="mac-field">
         <label class="fld" for="mac-server">대상을 제공하는 MCP 서버</label>
-        <input id="mac-server" name="target" placeholder="예: stdio:hr-db" title="stdio:서버이름 · * = 모든 STDIO 서버" required autocomplete="off" data-suggest="stdioTarget">
+        <select id="mac-server" name="server_id" required>
+          <option value="" selected disabled>등록된 서버 선택</option>
+          <option value="*">모든 STDIO 서버</option>
+          <option id="legacy-mac-server" value="legacy" hidden>기존 STDIO 대상</option>
+        </select>
       </div>
       <div class="mac-field">
         <label class="fld" for="mac-object-type">대상 유형</label>
@@ -517,6 +730,7 @@
     <p class="sub">한 에이전트 실행에서 사용하는 STDIO 서버들은 세션을 공유합니다. 보유 데이터 등급은 받은 데이터에 따라 올라가며, 새 세션은 이전 세션의 등급을 이어받습니다. 관리자는 필요할 때 L1로 초기화할 수 있습니다.</p>
     <div class="tools"><button class="ghost" onclick="loadMac()">새로고침</button></div>
     <div class="wrap"><table id="mac-sessions-t"></table></div>
+    </details>
   </section>
 
   <section id="audit">
@@ -526,9 +740,9 @@
     <div class="tools">
       <select id="audit-category" onchange="loadAudit()" aria-label="감사 로그 분류">
         <option value="">전체</option><option value="trust">신뢰 상태 변경</option>
-        <option value="session">세션 발급·초기화</option><option value="admin_api">관리자 변경(정책 변경 이력)</option>
+        <option value="session">세션 발급·초기화</option><option value="file_access">파일 접근</option><option value="admin_api">관리자 변경(정책 변경 이력)</option>
       </select>
-      <button class="ghost" onclick="loadAudit()">새로고침</button>
+      <button class="ghost" onclick="refreshLiveTab('audit')">새로고침</button>
     </div>
     <div class="wrap"><table id="audit-t"></table></div>
   </section>
@@ -536,7 +750,7 @@
   <section id="events">
     <h1 class="head">보안 이벤트</h1>
     <p class="sub">검사기가 잡아낸 항목입니다: 권한 남용, 요청·응답 속 민감정보, 같은 이름으로 바뀐 Tool / Resource / Prompt 정의, 스키마 위반 등.</p>
-    <div class="tools"><button class="ghost" onclick="loadEvents()">새로고침</button></div>
+    <div class="tools"><button class="ghost" onclick="refreshLiveTab('events')">새로고침</button></div>
     <div class="wrap"><table id="events-t"></table></div>
   </section>
 
@@ -565,14 +779,15 @@
 <script>
 const $ = s => document.querySelector(s);
 const TABS = {
+  overview: {label:"브리핑", icon:'<rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 13v-3m3 3V6m3 7V8"/>', load:loadOverview},
   explore:  {label:"탐색기", icon:'<circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.5 12.5l5 5"/>',          load:loadExplore},
-  traffic:  {label:"트래픽 피드",     icon:'<path d="M2 10h4l2-5 3 10 2-6 1 1h4"/>',                          load:()=>{loadTraffic();loadWall();}},
-  requests: {label:"요청",icon:'<path d="M3 10h13m-5-5 5 5-5 5"/>', load:loadRequests},
-  responses:{label:"응답",icon:'<path d="M4 4h12v9H8l-4 4z"/><path d="M7 8h6M7 11h4"/>',          load:loadResponses},
+  traffic:  {label:"트래픽 피드",     icon:'<path d="M2 10h4l2-5 3 10 2-6 1 1h4"/>',                          load:loadTraffic},
   agents:   {label:"에이전트",   icon:'<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="8" cy="9" r="2"/><path d="M12 8h3M12 11h3M5 14c1-2 5-2 6 0"/>', load:loadAgents},
+  requests: {label:"요청",icon:'<path d="M3 10h13m-5-5 5 5-5 5"/>', load:loadRequests},
   policies: {label:"요청 정책", icon:'<path d="M10 2l6 3v5c0 4-3 6-6 7-3-1-6-3-6-7V5z"/><path d="M7 10l2 2 4-4"/>', load:loadPolicies},
+  responses:{label:"응답",icon:'<path d="M4 4h12v9H8l-4 4z"/><path d="M7 8h6M7 11h4"/>',          load:loadResponses},
   respolicies:{label:"응답 정책", icon:'<path d="M10 2l6 3v5c0 4-3 6-6 7-3-1-6-3-6-7V5z"/><path d="M7 9h6M7 12h4"/>', load:loadRespPolicies},
-  mac:      {label:"MAC 보안 등급", icon:'<rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/>', load:loadMac},
+  mac:      {label:"파일 접근 제어", icon:'<rect x="4" y="9" width="12" height="9" rx="2"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/>', load:loadMacFiles},
   events:   {label:"보안 이벤트",   icon:'<path d="M10 3l8 14H2z"/><path d="M10 8v4M10 15v.4"/>',              load:loadEvents},
   audit:    {label:"감사 로그", icon:'<rect x="4" y="2" width="12" height="16" rx="2"/><path d="M7 7h6M7 10h6M7 13h4"/>', load:loadAudit},
 };
@@ -612,7 +827,12 @@ function show(id) {
     nav.children[i].classList.toggle("on", x === id);
   });
   revealActiveTab(true);
-  TABS[id].load();
+  activeTab = id;
+  clearTimeout(liveTimer);
+  $("#auto-updated").textContent = "";
+  $("#auto-updated").classList.remove("failed");
+  if (LIVE_INTERVALS[id]) refreshLiveTab(id);
+  else TABS[id].load();
 }
 
 // ---- 반응형 상단 바: 탭이 한 줄에 안 들어가면 탭 줄을 아래로 내리고, 그래도 넘치면 가로 스크롤 + 가장자리 페이드 ----
@@ -627,7 +847,7 @@ function syncBar() {
   // 계속 2행으로 판정된다. 클래스를 잠시 떼고 '원래 배치'에서 한 줄에 들어가는지 잰 뒤 결정한다.
   // (같은 프레임 안의 동기 측정이라 화면에 깜빡임은 생기지 않는다)
   bar.classList.remove("stacked");
-  const wraps = nav.offsetTop > bar.firstElementChild.offsetTop + 4;
+  const wraps = nav.offsetTop > bar.firstElementChild.offsetTop + 4 || nav.scrollWidth > nav.clientWidth + 2;
   bar.classList.toggle("stacked", wraps);
   syncNavFades();
 }
@@ -751,10 +971,25 @@ const formObj = f => Object.fromEntries(new FormData(f).entries());
 const esc = s => String(s ?? "").replace(/[<>&"']/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = s => String(s ?? "").replace("T", " ").slice(0, 19);
 const selectAllHeader = kind => `<input type="checkbox" id="select-all-${kind}" aria-label="전체 선택" onchange="toggleAll('${kind}', this.checked)">`;
+const tableMarkup = new WeakMap();
 function tbl(el, cols, rows, rowFn) {
-  el.innerHTML = "<thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>" +
+  const markup = "<thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>" +
     (rows.length ? rows.map(rowFn).join("")
                  : `<tr><td class="dim" colspan="${cols.length}">아직 데이터가 없습니다.</td></tr>`) + "</tbody>";
+  const liveTable = Boolean(LIVE_INTERVALS[el.closest("section")?.id]);
+  const previousMarkup = tableMarkup.get(el);
+  if (liveTable && previousMarkup === markup) return;
+  const selected = new Set([...el.querySelectorAll(".select-logs:checked")].map(box => box.dataset.id));
+  const rowKey = row => `${row.dataset.trafficKind}:${row.dataset.trafficId}`;
+  const oldRows = new Set([...el.querySelectorAll("tr[data-traffic-id]")].map(rowKey));
+  el.innerHTML = markup;
+  if (liveTable) tableMarkup.set(el, markup);
+  for (const box of el.querySelectorAll(".select-logs")) box.checked = selected.has(box.dataset.id);
+  if (previousMarkup) {
+    for (const row of el.querySelectorAll("tr[data-traffic-id]")) {
+      if (!oldRows.has(rowKey(row))) row.classList.add("new-traffic");
+    }
+  }
   keepTokens(el.tBodies[0]);
   enableColumnResize(el);
 }
@@ -859,7 +1094,10 @@ function xSet(key, value) {
   if (X.method && !xMethods().includes(X.method)) X.method = "";
   if (X.rule && !xRules().includes(X.rule)) X.rule = "";
   try { localStorage.setItem("explorer", JSON.stringify(X)); } catch {}
-  loadExplore();
+  loadExplore().catch(() => {
+    $("#auto-updated").classList.add("failed");
+    $("#auto-updated").textContent = "갱신 실패";
+  });
 }
 function xPills(key, options) {
   return `<div class="pills">` + [["", "전체"], ...options].map(([v, label, disabled, title]) =>
@@ -878,11 +1116,15 @@ function xRuleCard(k, count) {
     <div>${r.ml ? '<span class="tag">ML 필요</span>' : ''}${r.transports ? `<span class="tag">${esc(r.transports.join("/").toUpperCase())} 전용</span>` : ''}<span class="tag">${esc(SEV_KO[r.severity] || r.severity)}</span></div>
   </button>`;
 }
+let exploreLoadVersion = 0;
 async function loadExplore() {
-  try { if (!CATALOG) CATALOG = await api("/rules"); } catch (x) { $("#x-steps").textContent = x.message; return; }
+  const version = ++exploreLoadVersion;
+  if (!CATALOG) CATALOG = await api("/rules");
+  if (version !== exploreLoadVersion) return;
   if (X.method && !xMethods().includes(X.method)) X.method = "";
   if (X.rule && !xRules().includes(X.rule)) X.rule = "";
   const data = await api("/explore?" + new URLSearchParams({...X, limit: 300}));
+  if (version !== exploreLoadVersion) return;
   const rules = xRules();
   $("#x-steps").innerHTML =
     xStep(1, "transport", "전송 방식", "HTTP / STDIO", xPills("transport", Object.entries(CATALOG.transports))) +
@@ -901,11 +1143,11 @@ async function loadExplore() {
   ].filter(Boolean);
   $("#x-crumb").innerHTML = (path.length ? path.map(p => `<b>${esc(p)}</b>`).join('<span class="sep">›</span>') : '<span class="dim">전체</span>') +
     `<span class="count">${data.matched}건 일치${data.matched > data.rows.length ? ` (최신 ${data.rows.length}건 표시)` : ""} · 경로 전체 ${data.total}건</span>
-     <button class="ghost" onclick="loadExplore()">새로고침</button>
+     <button class="ghost" onclick="refreshLiveTab('explore')">새로고침</button>
      <button class="ghost" onclick="Object.keys(X).forEach(k => X[k] = ''); xAllOn = false; xSet('rule', '')">초기화</button>`;
-  tbl($("#explore-t"), ["시간","종류","전송","에이전트","구성요소","메서드","대상 객체","목적지","판정","탐지","사유"], data.rows, r => `<tr>
+  tbl($("#explore-t"), ["시간","종류 / 번호","전송","에이전트","구성요소","메서드","대상 객체","목적지","판정","탐지","사유"], data.rows, (r, i) => `<tr>
     <td class="dim">${esc(fmt(r.timestamp))}</td>
-    <td>${esc(KIND[r.kind] || r.kind)} <span class="dim">NO.${r.id}${r.request_log_id ? ` ← 요청 NO.${r.request_log_id}` : ""}</span></td>
+    <td>${esc(KIND[r.kind] || r.kind)} <span class="dim">· ${logNumber(data.rows.length - i, r.id)}${r.request_log_id ? ` ← 요청 ID #${r.request_log_id}` : ""}</span></td>
     <td>${esc(r.transport)}</td><td class="id">${esc(r.agent_id) || '—'}</td>
     <td>${compBadge(r.component)}</td><td>${esc(r.method) || '—'}</td>
     <td><span class="obj" title="${esc(r.object_name)}">${esc(r.object_name) || '—'}</span></td>
@@ -924,13 +1166,70 @@ document.addEventListener("click", e => {
   xSet(k, k === "rule" && v && X.rule === v ? "" : v);
 });
 
+
+function briefCard(tab, value, detail) {
+  return `<button class="brief-card" type="button" onclick="show('${tab}')">
+    <span class="label">${TABS[tab].label}<span aria-hidden="true">↗</span></span>
+    <strong class="value">${esc(value)}</strong><small>${esc(detail)}</small>
+  </button>`;
+}
+
+async function loadOverview() {
+  const status = $("#brief-status");
+  let data;
+  try {
+    data = await api("/overview");
+  } catch (error) {
+    status.hidden = false;
+    status.textContent = $("#brief-content").hidden
+      ? "보안 현황을 불러오지 못했습니다. 관리 서버를 확인한 뒤 새로고침하세요."
+      : "갱신하지 못했습니다. 마지막으로 불러온 현황을 표시합니다.";
+    throw error;
+  }
+  const {traffic, agents, events, files, policies, response_mode, latest_audit, transports, buckets} = data;
+  const requests = traffic.requests, responses = traffic.responses;
+  $("#brief-metrics").innerHTML = [
+    briefCard("events", `${events.open}건`, `미처리 · 높음 ${events.high}건`),
+    briefCard("agents", `${agents.total}개`, `등록 활성 ${agents.active}개 · 격리 ${agents.quarantined}개`),
+    briefCard("requests", `${requests.total}건`, `최근 24시간 · 차단 ${requests.denied}건`),
+    briefCard("responses", `${responses.total}건`, `최근 24시간 · 차단 ${responses.denied}건`),
+  ].join("");
+
+  const max = Math.max(1, ...buckets.flatMap(bucket => [bucket.requests, bucket.responses]));
+  const timeLabel = new Intl.DateTimeFormat("ko-KR", {month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", hour12:false});
+  const chart = $("#brief-chart");
+  const summaries = buckets.map(({start, requests, responses}) =>
+    `${timeLabel.format(start * 1000)}부터 2시간 · 요청 ${requests}건 · 응답 ${responses}건`);
+  chart.setAttribute("aria-label", "최근 24시간 요청·응답 추이. " + summaries.join(". "));
+  chart.innerHTML = buckets.map((bucket, i) => `<div class="brief-bin" title="${esc(summaries[i])}">
+    <i class="brief-requests" style="height:${bucket.requests * 100 / max}%"></i>
+    <i class="brief-responses" style="height:${bucket.responses * 100 / max}%"></i></div>`).join("");
+
+  $("#brief-events").innerHTML = events.latest.length ? events.latest.map(event => `<li>
+    <div><strong>${esc(event.label)}</strong>
+      <small>${esc(fmt(event.timestamp))}${event.agent_id ? ` · ${esc(event.agent_id)}` : ""}</small></div>
+    <span class="severity ${event.severity === "high" ? "risk-hi" : "dim"}">${esc(SEV_KO[event.severity] || event.severity)}</span>
+  </li>`).join("") : '<li class="dim">미처리 이벤트가 없습니다.</li>';
+
+  const auditLabel = !latest_audit ? "기록 없음"
+    : latest_audit.category === "admin_api" ? "관리자 변경" : AUDIT_ACTION_KO[latest_audit.action] || latest_audit.action;
+  $("#brief-links").innerHTML = [
+    briefCard("explore", `HTTP(S) ${transports.http}건 · STDIO ${transports.stdio}건`, "최근 24시간 전송별 요청·응답"),
+    briefCard("traffic", `${requests.total + responses.total}건`, "최근 24시간 요청·응답 합계"),
+    briefCard("policies", `활성 ${policies.policies.enabled}개`, `전체 ${policies.policies.total}개`),
+    briefCard("respolicies", `활성 ${policies.response_policies.enabled}개`, `전체 ${policies.response_policies.total}개 · ${MODE_KO[response_mode]}`),
+    briefCard("mac", files.configured ? `등록 파일 ${files.total}개` : "보호 폴더 미설정", "파일 등급과 접근 설정"),
+    briefCard("audit", auditLabel,
+      latest_audit ? `최근 기록 · ${fmt(latest_audit.timestamp)}` : "최근 변경과 접근 이력"),
+  ].join("");
+  status.hidden = true;
+  $("#brief-content").hidden = false;
+}
+
 // ---- command wall ----
 const RING = 326.7;
-async function loadWall() {
-  const [logs, responses, events, agents] = await Promise.all([
-    api("/logs?limit=500&requests_only=true"), api("/responses?limit=500"),
-    api("/events?limit=500"), api("/agents")]);
-  const traffic = mergeTraffic(logs, responses);
+function renderWall(traffic, events, agents) {
+  traffic = traffic.slice(0, 500);
   const allow = traffic.filter(l => l.decision === "ALLOW").length;
   const deny  = traffic.filter(l => l.decision === "DENY").length;
   const open  = events.filter(e => e.status === "open").length;
@@ -1019,11 +1318,12 @@ async function delAgent(id) { if (confirm(id + "을(를) 삭제할까요?\n신�
 // ---- policy edit (shared by request / response policies) ----
 // The add form doubles as the edit form: "Edit" loads a row into it and the
 // submit button switches to PUT until saved or cancelled.
-const EDIT = {policy: null, "response-policy": null, "mac-label": null};
-const POLICY_ROWS = {policy: {}, "response-policy": {}, "mac-label": {}};
-const policyKey = {policy: "policy_id", "response-policy": "response_policy_id", "mac-label": "label_id"};
-const EDIT_TABLE = {policy: "#policies-t", "response-policy": "#response-policies-t", "mac-label": "#mac-labels-t"};
-const EDIT_RELOAD = {policy: () => loadPolicies(), "response-policy": () => loadRespPolicies(), "mac-label": () => loadMac()};
+const EDIT = {policy: null, "response-policy": null, "mac-label": null, "mcp-server": null, "mac-file": null};
+const POLICY_ROWS = {policy: {}, "response-policy": {}, "mac-label": {}, "mcp-server": {}, "mac-file": {}};
+const policyKey = {policy: "policy_id", "response-policy": "response_policy_id", "mac-label": "label_id", "mcp-server": "server_id", "mac-file": "file_id"};
+const EDIT_TABLE = {policy: "#policies-t", "response-policy": "#response-policies-t", "mac-label": "#mac-labels-t", "mcp-server": "#mcp-servers-t", "mac-file": "#mac-files-t"};
+const EDIT_RELOAD = {policy: () => loadPolicies(), "response-policy": () => loadRespPolicies(),
+  "mac-label": () => loadMac(), "mcp-server": () => loadMac(), "mac-file": () => loadMacFiles()};
 function startEdit(kind, id) {
   const p = POLICY_ROWS[kind][id], f = $(`#${kind}-form`);
   if (!p) return;
@@ -1031,7 +1331,7 @@ function startEdit(kind, id) {
   f.reset();
   [...f.elements].forEach(el => { if (el.name && el.name in p) el.value = p[el.name] ?? ""; });
   const notes = [];
-  if (kind !== "mac-label") {
+  if (kind === "policy" || kind === "response-policy") {
     const destination = policyDestination(p.target);
     if (kind === "policy") {
       f.elements.destination_ip_port.value = destination.ipPort;
@@ -1045,20 +1345,33 @@ function startEdit(kind, id) {
       notes.push(`기존 메서드/도구 조건 ${p.tool} 유지 · 변경하려면 메서드나 도구 이름 입력`);
     }
   }
-  if (kind === "mac-label") syncMacObjectField();
+  if (kind === "mac-label") {
+    const server = f.elements.server_id;
+    if (p.server_id == null) {
+      server.options.namedItem("legacy-mac-server").textContent = `기존 대상 (${p.target})`;
+      server.value = p.target === "*" ? "*" : "legacy";
+    }
+    syncMacObjectField();
+  }
   f.classList.add("editing");
   f.querySelector(".primary").textContent = "수정 저장";
   f.querySelector(".edit-cancel").hidden = false;
-  f.querySelector(".edit-note").textContent = [`'${p.name}' 수정 중`, ...notes].join(" / ");
+  f.querySelector(".edit-note").textContent = [`'${p.name || p.filename}' 수정 중`, ...notes].join(" / ");
   markEditingRow(kind);
   f.scrollIntoView({behavior: "smooth", block: "center"});
-  f.elements.name.focus();
+  if (kind === "mac-file") {
+    f.elements.filename.disabled = true;
+    f.elements.level.focus();
+  } else {
+    f.elements.name.focus();
+  }
 }
 function cancelEdit(kind) {
   const f = $(`#${kind}-form`);
   EDIT[kind] = null;
   f.reset();
   if (kind === "mac-label") syncMacObjectField();
+  if (kind === "mac-file") f.elements.filename.disabled = false;
   f.classList.remove("editing");
   f.querySelector(".primary").textContent = f.querySelector(".primary").dataset.label;
   f.querySelector(".edit-cancel").hidden = true;
@@ -1072,16 +1385,14 @@ function markEditingRow(kind) {
 }
 // ---- field suggestions: focusing agent / target / tool opens a list with
 // "* (전체)" first, then values already seen in agents, policies and traffic.
-const SUGGEST = {agent: [], stdioTarget: [], method: [], tool: []};
-const SUGGEST_ALL = {agent: "모든 에이전트", stdioTarget: "모든 STDIO 서버", method: "모든 메서드", tool: "모든 도구"};
+const SUGGEST = {agent: [], method: [], tool: []};
+const SUGGEST_ALL = {agent: "모든 에이전트", method: "모든 메서드", tool: "모든 도구"};
 async function loadSuggestions() {
   const [agents, logs, pols, rpols] = await Promise.all([
     api("/agents").catch(() => []), api("/logs?limit=500").catch(() => []),
     api("/policies").catch(() => []), api("/response-policies").catch(() => [])]);
   const uniq = arr => [...new Set(arr.filter(v => v && v !== "*"))].sort();
   SUGGEST.agent = uniq(agents.map(a => a.agent_id));
-  SUGGEST.stdioTarget = uniq([...logs.map(l => l.destination), ...pols.map(p => p.target), ...rpols.map(p => p.target)]
-    .filter(value => value?.startsWith("stdio:")));
   const splitPolicies = [...pols, ...rpols].filter(p => p.mcp_method != null);
   SUGGEST.method = uniq(["tools/list", "tools/call", ...logs.map(l => l.mcp_method),
     ...splitPolicies.map(p => p.mcp_method)]);
@@ -1198,10 +1509,16 @@ function policyToggleBody(p) {
 async function savePolicy(kind, e, path) {
   e.preventDefault();
   const o = formObj(e.target), ed = EDIT[kind];
-  o.enabled = ed ? !!ed.enabled : true;
-  o.description = ed ? (ed.description || "") : "";
+  if (kind === "mac-file") o.level = Number(o.level);
+  else if (kind !== "mcp-server") o.description = ed?.description || "";
   try {
-    if (kind !== "mac-label") normalizePolicyForm(o, ed);
+    if (kind === "policy" || kind === "response-policy") {
+      o.enabled = ed ? !!ed.enabled : true;
+      normalizePolicyForm(o, ed);
+    } else if (kind === "mac-label" && (o.server_id === "*" || o.server_id === "legacy")) {
+      o.target = o.server_id === "legacy" ? ed.target : "*";
+      delete o.server_id;
+    }
     await api(ed ? `${path}/${ed[policyKey[kind]]}` : path, {
       method: ed ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(o)});
     cancelEdit(kind);
@@ -1243,6 +1560,10 @@ async function delPolicy(id) {
 }
 
 // ---- traffic ----
+function logNumber(number, id) {
+  return `<span class="log-number" title="로그 ID #${id}">${number}</span>`;
+}
+
 function mergeTraffic(logs, responses) {
   const timestamp = value => {
     const ms = Date.parse(value);
@@ -1259,15 +1580,21 @@ function detailButton(kind, id) {
 }
 
 async function loadTraffic() {
-  const [logs, responses] = await Promise.all([api("/logs?limit=200"), api("/responses?limit=200")]);
+  const [logs, requests, responses, events, agents, servers] = await Promise.all([
+    api("/logs?limit=200"), api("/logs?limit=500&requests_only=true"), api("/responses?limit=500"),
+    api("/events?limit=500"), api("/agents"), api("/mcp/servers")
+  ]);
+  const names = new Map(agents.map(a => [a.agent_id, a.agent_name]));
+  const serverNames = new Map(servers.map(s => [s.server_id, s.name]));
+  renderWall(mergeTraffic(requests, responses), events, agents);
   const rows = mergeTraffic(logs, responses).slice(0, 200);
-  tbl($("#traffic-t"), ["시간","방향","판정","에이전트","전송","목적지","메서드 / 대상",""], rows, l => `<tr data-traffic-kind="${l.kind}" data-traffic-id="${l.id}">
+  tbl($("#traffic-t"), ["시간","방향 / 번호","판정","에이전트","전송","목적지","메서드 / 대상",""], rows, (l, i) => `<tr data-traffic-kind="${l.kind}" data-traffic-id="${l.id}">
     <td class="dim nowrap">${esc(fmt(l.timestamp))}</td>
-    <td class="nowrap">${KIND[l.kind]}<span class="sub-line">#${l.id}${l.request_log_id ? ` · 요청 #${l.request_log_id}` : ""}</span></td>
+    <td class="nowrap">${KIND[l.kind]} <span class="dim">· ${logNumber(rows.length - i, l.id)}</span>${l.request_log_id ? `<span class="sub-line">요청 ID #${l.request_log_id}</span>` : ""}</td>
     <td><span class="stamp ${l.decision === "DENY" ? "deny" : "allow"}">${esc(verdictKo(l.decision))}</span></td>
-    <td class="id">${esc(l.agent_id) || "—"}</td>
+    <td title="${esc(l.agent_id)}">${esc(names.get(l.agent_id) || l.agent_id) || "—"}</td>
     <td>${esc(l.transport || "http")}</td>
-    <td>${esc(l.target || l.destination) || "—"}</td>
+    <td title="${esc(l.target || l.destination)}">${esc(serverNames.get(l.server_id) || l.target || l.destination) || "—"}</td>
     <td>${compBadge(l.component)} ${esc(l.mcp_method || l.request_method || l.method) || "—"}
       <span class="sub-line">${esc(l.object_name || l.tool)}</span></td>
     <td>${detailButton(l.kind, l.id)}</td></tr>`);
@@ -1276,9 +1603,9 @@ async function loadTraffic() {
 async function loadRequests() {
   const [rows, pols] = await Promise.all([api("/logs?limit=200&requests_only=true"), api("/policies").catch(() => [])]);
   const polName = Object.fromEntries(pols.map(p => [p.policy_id, p.name]));
-  tbl($("#requests-t"), [selectAllHeader("logs"),"번호","판정","시간","에이전트","전송","목적지","구성요소","메서드","대상 객체","정책","사유",""], rows, l => `<tr data-traffic-kind="request" data-traffic-id="${l.log_id}">
-    <td><input type="checkbox" class="row-select select-logs" data-id="${l.log_id}" aria-label="로그 ${l.log_id} 선택" onchange="syncSelection('logs')"></td>
-    <td class="dim nowrap">${l.log_id}</td>
+  tbl($("#requests-t"), [selectAllHeader("logs"),"번호","판정","시간","에이전트","전송","목적지","구성요소","메서드","대상 객체","정책","사유",""], rows, (l, i) => `<tr data-traffic-kind="request" data-traffic-id="${l.log_id}">
+    <td><input type="checkbox" class="row-select select-logs" data-id="${l.log_id}" aria-label="로그 ${rows.length - i}번 선택" onchange="syncSelection('logs')"></td>
+    <td class="dim nowrap">${logNumber(rows.length - i, l.log_id)}</td>
     <td><span class="stamp ${l.decision === 'DENY' ? 'deny' : 'allow'}">${esc(verdictKo(l.decision))}</span></td>
     <td class="dim">${esc(fmt(l.timestamp))}</td>
     <td class="id">${esc(l.agent_id) || '—'}</td>
@@ -1318,7 +1645,7 @@ async function openTrafficDetail(kind, id) {
   const status = $("#traffic-detail-status"), metadata = $("#traffic-detail-meta");
   const links = $("#traffic-detail-links"), bodyButton = $("#traffic-body-button");
   const bodyStatus = $("#traffic-body-status"), body = $("#traffic-body");
-  $("#traffic-detail-title").textContent = `${KIND[kind].replace(/[←→]/g, "").trim()} #${id}`;
+  $("#traffic-detail-title").textContent = `${KIND[kind].replace(/[←→]/g, "").trim()} ID #${id}`;
   status.textContent = "상세 정보를 불러오는 중…";
   metadata.replaceChildren();
   links.replaceChildren();
@@ -1334,7 +1661,7 @@ async function openTrafficDetail(kind, id) {
     const findings = response ? l.findings : JSON.parse(l.findings || "[]");
     const fields = [
       ["시간", fmt(l.timestamp)], ["에이전트", l.agent_id], ["전송", l.transport || "http"],
-      ["출발지", l.source], ["목적지", l.target || l.destination],
+      ["출발지", l.source], ["목적지", l.target || l.destination], ["등록 MCP 서버", l.server_name ? `${l.server_name} (#${l.server_id})` : l.server_id],
       ["메서드", l.mcp_method || l.request_method || l.method], ["대상 객체", l.object_name || l.tool],
       ["판정", verdictKo(response ? l.effective_action : l.decision)], ["사유", l.reason],
       ["정책 번호", response ? l.response_policy_id : l.policy_id],
@@ -1356,7 +1683,7 @@ async function openTrafficDetail(kind, id) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "ghost";
-      button.textContent = `연결된 ${type === "request" ? "요청" : "응답"} #${relatedId}`;
+      button.textContent = `연결된 ${type === "request" ? "요청" : "응답"} ID #${relatedId}`;
       button.onclick = () => openTrafficDetail(type, relatedId);
       links.append(button);
     }
@@ -1421,17 +1748,19 @@ async function deleteSelected(kind) {
   } catch (x) {
     alert(x.message);
   } finally {
-    if (kind === "agents") { await loadAgents(); await loadWall(); }
+    if (kind === "agents") await loadAgents();
     if (kind === "policies") await loadPolicies();
     if (kind === "response-policies") await loadRespPolicies();
     if (kind === "logs") await refreshTrafficViews();
   }
 }
-function refreshTrafficViews() {
-  return Promise.all([loadTraffic(), loadWall(), loadRequests(), loadResponses()]);
+async function refreshTrafficViews() {
+  const id = activeTab;
+  await liveRequests.get(id);
+  return refreshLiveTab(id);
 }
 async function delLog(id) {
-  if (confirm("로그 " + id + "을(를) 삭제할까요?")) {
+  if (confirm("이 로그를 삭제할까요?")) {
     await api(`/logs/${id}`, {method:"DELETE"});
     await refreshTrafficViews();
   }
@@ -1444,27 +1773,37 @@ async function decide(id, decision) {
 }
 
 // ---- responses ----
-async function loadResponses() {
+async function loadResponses(includeMl = true) {
   const [rows, policies, setting, ml] = await Promise.all([
     api("/responses?limit=200"), api("/response-policies"), api("/settings/response-enforcement"),
-    api("/ml/status")
+    includeMl ? api("/ml/status").catch(() => null) : null
   ]);
+  if (ml) renderMlStatus(ml);
+  setModeSelects(setting.mode);
+  const rpName = Object.fromEntries(policies.map(p => [p.response_policy_id, p.name]));
+  renderResponses(rows, rpName);
+}
+function renderMlStatus(ml) {
+  if (!ml.enabled) {
+    $("#ml-status").replaceChildren();
+    return;
+  }
   const findingTotal = Object.values(ml.findings || {}).reduce((a,b) => a + b, 0);
   $("#ml-status").innerHTML = `
     <div class="card"><span>ML 분류기</span><strong class="${ml.loaded ? 'ok' : 'risk-hi'}">${ml.loaded ? '로드됨' : '사용 불가'}</strong><small>${esc(ml.model_id)} @ ${esc(ml.model_revision)}</small></div>
     <div class="card"><span>ML 탐지</span><strong>${findingTotal}</strong><small>${Object.entries(ml.findings || {}).map(([k,v]) => `${esc(k)}: ${v}`).join(' · ') || '없음'}</small></div>
     <div class="card"><span>추론 지연</span><strong>${ml.latency_ms.p95} ms</strong><small>p50 ${ml.latency_ms.p50} · p95 ${ml.latency_ms.p95} · p99 ${ml.latency_ms.p99}</small></div>
     <div class="card"><span>최근 로드 오류</span><strong>${ml.load_error ? '확인 필요' : '없음'}</strong><small>${esc(ml.load_error || '로컬 모델 파일 검증됨')}</small></div>`;
-  setModeSelects(setting.mode);
-  const rpName = Object.fromEntries(policies.map(p => [p.response_policy_id, p.name]));
+}
+function renderResponses(rows, rpName) {
   // Related fields share a cell (main value + dim sub-line) so the table fits the
   // screen without a horizontal scrollbar and Summary gets real width.
-  tbl($("#responses-t"), ["판정","번호","시간","에이전트","목적지","메서드 / 객체","상태","탐지 항목","요약",""], rows, r => `<tr data-traffic-kind="response" data-traffic-id="${r.response_id}">
+  tbl($("#responses-t"), ["판정","번호","시간","에이전트","목적지","메서드 / 객체","상태","탐지 항목","요약",""], rows, (r, i) => `<tr data-traffic-kind="response" data-traffic-id="${r.response_id}">
     <td class="verdict"><span class="stamp ${r.effective_action === 'DENY' ? 'deny' : 'allow'}">${esc(verdictKo(r.effective_action))}</span>
       <span class="sub-line">${esc(MODE_KO[r.enforcement_mode] || r.enforcement_mode)}</span>
       <span class="sub-line" title="${esc(r.reason)}${r.response_policy_id ? ` (DB ID ${r.response_policy_id})` : ''}">정책: ${r.response_policy_id == null ? '없음' : esc(rpName[r.response_policy_id] || `삭제됨 #${r.response_policy_id}`)} <span class="${r.policy_action === 'DENY' ? 'risk-hi' : ''}">${esc(r.policy_action ? verdictKo(r.policy_action) : '')}</span></span></td>
-    <td class="nowrap">${r.response_id}
-      <span class="sub-line">요청 <button class="cell-btn" type="button" onclick="openTrafficDetail('request', ${r.request_log_id})">#${r.request_log_id}</button></span></td>
+    <td class="nowrap">${logNumber(rows.length - i, r.response_id)}
+      <span class="sub-line">요청 ID <button class="cell-btn" type="button" onclick="openTrafficDetail('request', ${r.request_log_id})">#${r.request_log_id}</button></span></td>
     <td class="dim nowrap">${esc(fmt(r.timestamp).slice(0, 10))}<span class="sub-line">${esc(fmt(r.timestamp).slice(11))}</span></td>
     <td class="id nowrap">${esc(r.agent_id) || '—'}</td>
     <td class="nowrap">${esc(r.destination) || '—'}<span class="sub-line">${esc(r.protocol) || '—'} · ${esc(r.transport || 'http')}</span></td>
@@ -1522,7 +1861,7 @@ async function responseDecision(id, finding, decision) {
   const reason = prompt(`응답 ${id}의 ${finding}을(를) ${decision === 'ALLOW' ? '허용' : '차단'}합니다. 사유:`, "운영자 응답 판단");
   if (reason === null) return;
   await api(`/response-decisions/${id}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({decision, finding, reason})});
-  loadResponses();
+  await refreshTrafficViews();
 }
 
 // ---- MAC (STDIO zero trust) ----
@@ -1545,13 +1884,51 @@ function levelChip(n) {
   if (!n) return '<span class="dim">—</span>';
   return `<span class="chip" style="--sev:${LEVEL_COLOR[n] || "var(--dim)"}" title="${esc(MAC_LEVELS[n] || "")}">L${n} ${esc((MAC_LEVELS[n] || "").split(" ")[0])}</span>`;
 }
+async function loadMacFiles() {
+  const {configured, files} = await api("/mac/files");
+  const form = $("#mac-file-form");
+  form.querySelector(".primary").disabled = !configured;
+  $("#mac-file-status").textContent = configured
+    ? "파일 읽기·수정에는 에이전트 인증이 필요합니다."
+    : "보호 폴더를 준비하고 MayAI 실행 환경에 MAYAI_PROTECTED_DIR을 지정하세요.";
+  POLICY_ROWS["mac-file"] = Object.fromEntries(files.map(file => [file.file_id, file]));
+  tbl($("#mac-files-t"), ["파일 ID","파일 이름","보안 등급","",""], files, file => `<tr data-id="${file.file_id}">
+    <td>${file.file_id}</td><td>${esc(file.filename)}</td><td>${levelChip(file.level)}</td>
+    <td><button class="cell-btn" onclick="startEdit('mac-file', ${file.file_id})">등급 수정</button></td>
+    <td><button class="cell-btn d" onclick="delMacFile(${file.file_id})">등록 해제</button></td></tr>`);
+  markEditingRow("mac-file");
+}
+const saveMacFile = e => savePolicy("mac-file", e, "/mac/files");
+async function delMacFile(id) {
+  if (!confirm("이 파일의 등록을 해제할까요? 이후 파일 접근 API에서 사용할 수 없습니다.")) return;
+  try {
+    await api(`/mac/files/${id}`, {method:"DELETE"});
+    if (EDIT["mac-file"]?.file_id === id) cancelEdit("mac-file");
+    await loadMacFiles();
+  } catch (error) { alert(error.message); }
+}
 async function loadMac() {
-  loadSuggestions();
-  const [labels, sessions] = await Promise.all([api("/mac/labels"), api("/mac/sessions")]);
+  const [servers, labels, sessions] = await Promise.all([
+    api("/mcp/servers"), api("/mac/labels"), api("/mac/sessions")
+  ]);
+  POLICY_ROWS["mcp-server"] = Object.fromEntries(servers.map(server => [server.server_id, server]));
+  tbl($("#mcp-servers-t"), ["ID","서버 이름","STDIO 실행 이름","HTTP(S) 접속 URL","",""], servers, server => `<tr data-id="${server.server_id}">
+    <td>${server.server_id}</td><td>${esc(server.name)}</td>
+    <td>${esc(server.stdio_target || "—")}</td><td>${esc(server.http_url || "—")}</td>
+    <td><button class="cell-btn" onclick="startEdit('mcp-server', ${server.server_id})">수정</button></td>
+    <td><button class="cell-btn d" onclick="delMcpServer(${server.server_id})">삭제</button></td></tr>`);
+  markEditingRow("mcp-server");
+  const serverSelect = $("#mac-server"), current = serverSelect.value;
+  [...serverSelect.querySelectorAll("[data-server-option]")].forEach(option => option.remove());
+  serverSelect.insertAdjacentHTML("beforeend", servers.map(server =>
+    `<option value="${server.server_id}" data-server-option>${esc(server.name)}</option>`).join(""));
+  serverSelect.value = [...serverSelect.options].some(option => option.value === current) ? current : "";
   POLICY_ROWS["mac-label"] = Object.fromEntries(labels.map(l => [l.label_id, l]));
   tbl($("#mac-labels-t"), ["번호","표시 이름","MCP 서버","대상 유형","대상 이름 또는 URI","보안 등급","데이터 흐름","",""], labels, (l, i) => `<tr data-id="${l.label_id}">
     <td class="dim" title="DB ID ${l.label_id}">${i + 1}</td><td>${esc(l.name)}</td>
-    <td>${esc(l.target)}</td><td>${esc(MAC_TYPE_KO[l.object_type])}</td>
+    <td>${esc(l.server_id == null ? (l.target === "*" ? "모든 STDIO 서버" : l.target)
+      : POLICY_ROWS["mcp-server"][l.server_id]?.name || "#" + l.server_id)}</td>
+    <td>${esc(MAC_TYPE_KO[l.object_type])}</td>
     <td><span class="obj">${esc(l.object_pattern)}</span></td>
     <td>${levelChip(l.level)}</td>
     <td class="${l.flow === 'egress' ? 'risk-md' : ''}">${esc(FLOW_KO[l.flow] || l.flow)}</td>
@@ -1566,6 +1943,15 @@ async function loadMac() {
     <td>${esc(s.raised_by) || '<span class="dim">—</span>'}</td>
     <td class="dim">${esc(fmt(s.updated_at))}</td>
     <td><button class="cell-btn" onclick="resetMacSession('${encodeURIComponent(s.session_id)}')" ${s.level > 1 ? "" : "disabled"}>L1로 초기화</button></td></tr>`);
+}
+const saveMcpServer = e => savePolicy("mcp-server", e, "/mcp/servers");
+async function delMcpServer(id) {
+  if (!confirm("이 MCP 서버 등록을 삭제할까요?")) return;
+  try {
+    await api(`/mcp/servers/${id}`, {method:"DELETE"});
+    if (EDIT["mcp-server"]?.server_id === id) cancelEdit("mcp-server");
+    await loadMac();
+  } catch (error) { alert(error.message); }
 }
 const createMacLabel = e => savePolicy("mac-label", e, "/mac/labels");
 async function delMacLabel(id) {
@@ -1588,6 +1974,7 @@ const agentTrustDialog = $("#agent-trust-detail");
 let agentTrust = new Map();
 const AUDIT_ACTION_KO = {AUTO_RESTRICT:"자동 권한 축소", AUTO_QUARANTINE:"자동 격리", MANUAL_QUARANTINE:"수동 격리",
   QUARANTINE_RELEASED:"격리 해제", TRUST_MIGRATED:"신뢰 상태 통합",
+  FILE_DELEGATED:"파일 접근 위임", FILE_READ:"파일 읽기", FILE_WRITE:"파일 수정", FILE_ACCESS_DENIED:"파일 접근 차단",
   RECOVERY_REQUESTED:"복구 요청", RECOVERY_APPROVED:"복구 승인", TRUST_VERIFIED:"검증 완료", PROBATION_ENDED:"관찰 종료",
   SESSION_ISSUED:"세션 발급", SESSION_LEVEL_RESET:"세션 등급 초기화", SETTINGS_CHANGED:"전환 기준 변경"};
 function trustStatusButton(id) {
@@ -1657,16 +2044,20 @@ async function changeQuarantine(id, releasing) {
 
 async function loadAudit() {
   const filter = $("#audit-category"), category = filter.value;
-  const audit = await api("/audit?limit=200" + (category ? `&category=${encodeURIComponent(category)}` : ""));
+  const [audit, agents] = await Promise.all([
+    api("/audit?limit=200" + (category ? `&category=${encodeURIComponent(category)}` : "")),
+    api("/agents")
+  ]);
   if (filter.value !== category) return;
+  const names = new Map(agents.map(a => [a.agent_id, a.agent_name]));
   const c = audit.chain;
   $("#audit-chain").innerHTML = c.ok
     ? `<span class="ok">해시 체인 정상</span> · ${c.checked}건 검증 · 기록은 추가만 가능하고 수정·삭제는 DB에서 거부됩니다.`
     : `<span class="risk-hi">해시 체인 손상: #${c.broken_at} 기록부터 변조가 의심됩니다.</span>`;
   tbl($("#audit-t"), ["번호","시간","주체","분류","에이전트","동작","이전 → 이후","내용"], audit.rows, a => `<tr>
     <td class="dim">${a.audit_id}</td><td class="dim">${esc(fmt(a.timestamp))}</td>
-    <td>${esc(actorKo(a.actor))}</td><td class="dim">${esc({trust:"신뢰 상태", session:"세션", admin_api:"설정·정책 변경"}[a.category] || a.category)}</td>
-    <td class="id">${esc(a.agent_id) || '<span class="dim">—</span>'}</td>
+    <td>${esc(actorKo(a.actor))}</td><td class="dim">${esc({trust:"신뢰 상태", session:"세션", file_access:"파일 접근", admin_api:"설정·정책 변경"}[a.category] || a.category)}</td>
+    <td title="${esc(a.agent_id)}">${esc(names.get(a.agent_id) || a.agent_id) || '<span class="dim">—</span>'}</td>
     <td>${a.category === "admin_api" ? `${esc(a.detail || a.action)}<span class="sub-line dim">${esc(a.action)}</span>` : esc(AUDIT_ACTION_KO[a.action] || a.action)}</td>
     <td>${a.from_status || a.to_status ? `${esc(a.from_status || "—")} → ${esc(a.to_status || "—")}` : '<span class="dim">—</span>'}</td>
     <td class="dim">${a.category === "admin_api" ? "" : esc(a.detail)}</td></tr>`);
@@ -1674,6 +2065,7 @@ async function loadAudit() {
 function actorKo(actor) {
   if (actor === "system") return "시스템 (자동)";
   if (actor === "admin") return "관리자 (키 인증)";
+  if (actor.startsWith("agent:")) return "에이전트 · " + actor.slice(6);
   return actor.startsWith("admin:") ? `관리자 · ${actor.slice(6)}` : actor;
 }
 // ---- events ----
@@ -1687,7 +2079,62 @@ async function loadEvents() {
     <td class="dim">${esc(e.reason)}</td><td>${esc(STATUS_KO[e.status] || e.status)}</td></tr>`);
 }
 
-show("traffic");
+const LIVE_INTERVALS = {overview:15000, traffic:5000, requests:5000, responses:5000, events:5000, explore:12000, audit:12000};
+const liveRequests = new Map();
+let activeTab = "overview", liveTimer = null;
+const autoRefreshButton = $("#auto-refresh");
+
+function scheduleLiveRefresh() {
+  clearTimeout(liveTimer);
+  const interval = LIVE_INTERVALS[activeTab];
+  if (!interval || document.hidden || autoRefreshButton.getAttribute("aria-pressed") !== "true") return;
+  liveTimer = setTimeout(() => {
+    const focus = document.activeElement;
+    const usingControls = focus?.matches(":focus-visible") && focus.closest("#" + activeTab);
+    if (document.querySelector("dialog[open], .col-resizer.dragging") || usingControls) scheduleLiveRefresh();
+    else refreshLiveTab(activeTab, true);
+  }, interval);
+}
+
+function refreshLiveTab(id, automatic = false) {
+  if (!LIVE_INTERVALS[id]) return;
+  if (liveRequests.has(id)) return liveRequests.get(id);
+  const status = $("#auto-updated");
+  const task = (async () => {
+    try {
+      if (id === "responses") await loadResponses(!automatic);
+      else await TABS[id].load();
+      if (activeTab === id) {
+        status.classList.remove("failed");
+        status.textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR", {hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false});
+      }
+    } catch {
+      if (activeTab === id) {
+        status.classList.add("failed");
+        status.textContent = "갱신 실패";
+      }
+    } finally {
+      liveRequests.delete(id);
+      if (activeTab === id) scheduleLiveRefresh();
+    }
+  })();
+  liveRequests.set(id, task);
+  return task;
+}
+
+autoRefreshButton.addEventListener("click", () => {
+  const enabled = autoRefreshButton.getAttribute("aria-pressed") !== "true";
+  autoRefreshButton.setAttribute("aria-pressed", String(enabled));
+  autoRefreshButton.textContent = enabled ? "자동 갱신" : "자동 갱신 일시 정지";
+  if (enabled) refreshLiveTab(activeTab);
+  else scheduleLiveRefresh();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && autoRefreshButton.getAttribute("aria-pressed") === "true") refreshLiveTab(activeTab, true);
+  scheduleLiveRefresh();
+});
+
+show("overview");
 </script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mayai-booth": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["bridge.py"],
+      "env": {
+        "MAYAI_BOOTH_HOST": "${MAYAI_BOOTH_HOST}",
+        "MAYAI_BOOTH_TOKEN": "${MAYAI_BOOTH_TOKEN}"
+      }
+    }
+  }
+}

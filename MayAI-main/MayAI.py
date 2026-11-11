@@ -55,12 +55,14 @@ import os
 import re
 import secrets
 import sqlite3
+import stat
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +96,8 @@ ML_CHUNK_TIMEOUT_SECONDS = float(os.environ.get("MAYAI_ML_CHUNK_TIMEOUT", "0.5")
 ML_RESPONSE_TIMEOUT_SECONDS = float(os.environ.get("MAYAI_ML_RESPONSE_TIMEOUT", "2.0"))
 ML_MAX_CHUNKS = 16
 TRAFFIC_BODY_LIMIT = 1024 * 1024
+PROTECTED_FILE_LIMIT = 1024 * 1024
+FILE_DELEGATION_SECONDS = 300
 
 # --------------------------------------------------------------------------
 # Database
@@ -112,12 +116,21 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at TEXT NOT NULL
 );
 
--- MAC object labels (STDIO only): which security level a tool / resource /
+CREATE TABLE IF NOT EXISTS mcp_servers (
+    server_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    stdio_target TEXT UNIQUE,
+    http_url TEXT UNIQUE,
+    CHECK (stdio_target IS NOT NULL OR http_url IS NOT NULL)
+);
+
+-- MAC object labels (STDIO enforcement): which security level a tool / resource /
 -- prompt of an internal MCP server holds, and what kind of data flow it is.
 CREATE TABLE IF NOT EXISTS mac_labels (
     label_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     target TEXT NOT NULL DEFAULT '*',            -- stdio:<server-name> or *
+    server_id INTEGER REFERENCES mcp_servers(server_id) ON DELETE RESTRICT,
     object_type TEXT NOT NULL DEFAULT '*',       -- tool | resource | prompt | * (legacy)
     object_pattern TEXT NOT NULL DEFAULT '*',    -- name or URI; glob allowed
     level INTEGER NOT NULL,                      -- 1 Public .. 4 Critical
@@ -125,6 +138,34 @@ CREATE TABLE IF NOT EXISTS mac_labels (
     description TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mac_files (
+    file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    root TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    filename_key TEXT NOT NULL,
+    level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 4),
+    UNIQUE (root, filename_key)
+);
+
+CREATE TABLE IF NOT EXISTS file_agent_levels (
+    agent_id TEXT PRIMARY KEY,
+    level INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS file_delegations (
+    token_hash TEXT PRIMARY KEY,
+    file_id INTEGER NOT NULL REFERENCES mac_files(file_id) ON DELETE CASCADE,
+    requester_id TEXT NOT NULL,
+    executor_id TEXT NOT NULL,
+    requester_token_hash TEXT NOT NULL,
+    executor_token_hash TEXT NOT NULL,
+    requester_generation INTEGER NOT NULL,
+    executor_generation INTEGER NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('read', 'write')),
+    content_hash TEXT,
+    expires_at REAL NOT NULL
 );
 
 -- MAC session: the highest level of data one authenticated agent run has
@@ -230,6 +271,7 @@ CREATE TABLE IF NOT EXISTS logs (
     mcp_method TEXT,                             -- JSON-RPC method, e.g. resources/read
     component TEXT,                              -- tool | resource | prompt | lifecycle | other
     object_name TEXT,                            -- tool name, resource uri or prompt name
+    server_id INTEGER,                          -- server identified at the time of the request
     findings TEXT                                -- JSON list of request-side detections
 );
 
@@ -260,6 +302,7 @@ CREATE TABLE IF NOT EXISTS response_logs (
     transport TEXT,
     component TEXT,
     object_name TEXT,
+    server_id INTEGER,
     FOREIGN KEY(request_log_id) REFERENCES logs(log_id) ON DELETE CASCADE
 );
 
@@ -422,6 +465,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     mac_columns = {row["name"] for row in conn.execute("PRAGMA table_info(mac_labels)")}
     if "object_type" not in mac_columns:
         conn.execute("ALTER TABLE mac_labels ADD COLUMN object_type TEXT NOT NULL DEFAULT '*'")
+    if "server_id" not in mac_columns:
+        conn.execute("ALTER TABLE mac_labels ADD COLUMN server_id INTEGER REFERENCES mcp_servers(server_id) ON DELETE RESTRICT")
     trust_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_trust)")}
     if "quarantine_generation" not in trust_columns:
         conn.execute("ALTER TABLE agent_trust ADD COLUMN quarantine_generation INTEGER NOT NULL DEFAULT 0")
@@ -446,6 +491,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                    "findings"):
         if column not in log_columns:
             conn.execute(f"ALTER TABLE logs ADD COLUMN {column} TEXT")
+    if "server_id" not in log_columns:
+        conn.execute("ALTER TABLE logs ADD COLUMN server_id INTEGER")
 
     response_log_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(response_logs)")
@@ -459,6 +506,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         "transport": "TEXT",
         "component": "TEXT",
         "object_name": "TEXT",
+        "server_id": "INTEGER",
     }
     for column, declaration in response_log_additions.items():
         if column not in response_log_columns:
@@ -552,6 +600,18 @@ def canonical_http_url(value: str) -> str:
     return urlunsplit((parts.scheme, authority, parts.path or "/", parts.query, ""))
 
 
+def resolve_mcp_server(transport: str, destination: str, destination_url: Optional[str] = None) -> Optional[int]:
+    """Use the proxy's connection target, which is independent of the MCP payload."""
+    with db() as conn:
+        if transport == "stdio":
+            row = conn.execute("SELECT server_id FROM mcp_servers WHERE stdio_target=?", (destination,)).fetchone()
+        elif transport == "http" and destination_url:
+            row = conn.execute("SELECT server_id FROM mcp_servers WHERE http_url=?", (destination_url,)).fetchone()
+        else:
+            return None
+    return row["server_id"] if row else None
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -568,7 +628,15 @@ class AuthResult:
     finding: Optional[str] = None
 
 
-def authenticate_agent(headers: dict[str, str], source_ip: str) -> AuthResult:
+def _agent_row(conn: sqlite3.Connection, agent_id: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        "SELECT a.*, t.trust_status, COALESCE(t.quarantine_generation, 0) AS quarantine_generation"
+        " FROM agents AS a LEFT JOIN agent_trust AS t USING (agent_id) WHERE a.agent_id = ?", (agent_id,)
+    ).fetchone()
+
+
+def authenticate_agent(headers: dict[str, str], source_ip: str, *,
+                       conn: Optional[sqlite3.Connection] = None) -> AuthResult:
     agent_id = headers.get("x-agent-id")
     token = headers.get("x-agent-token")
     if not agent_id:
@@ -576,11 +644,8 @@ def authenticate_agent(headers: dict[str, str], source_ip: str) -> AuthResult:
     if not token:
         return AuthResult(False, "missing X-Agent-Token")
 
-    with db() as conn:
-        row = conn.execute(
-            "SELECT a.*, t.trust_status, COALESCE(t.quarantine_generation, 0) AS quarantine_generation"
-            " FROM agents AS a LEFT JOIN agent_trust AS t USING (agent_id) WHERE a.agent_id = ?", (agent_id,)
-        ).fetchone()
+    with (db() if conn is None else nullcontext(conn)) as connection:
+        row = _agent_row(connection, agent_id)
 
     if row is None:
         return AuthResult(False, f"unregistered agent: {agent_id}")
@@ -1258,9 +1323,9 @@ def evaluate_response_policy(agent_id: str, target: str, tool: str,
     return ResponsePolicyDecision(best["action"], best["response_policy_id"], reason)
 
 
-def get_response_enforcement_mode() -> str:
-    with db() as conn:
-        row = conn.execute(
+def get_response_enforcement_mode(conn: Optional[sqlite3.Connection] = None) -> str:
+    with (db() if conn is None else nullcontext(conn)) as connection:
+        row = connection.execute(
             "SELECT value FROM settings WHERE setting_key='response_enforcement_mode'"
         ).fetchone()
     value = row["value"] if row else "MONITOR"
@@ -1352,7 +1417,9 @@ def _get_ml_classifier() -> Any:
         return _ML_CLASSIFIER
 
 
-def _ml_enabled() -> bool:
+def _ml_enabled(*, require_model: bool = True) -> bool:
+    if require_model and not (MODEL_DIR / "model.onnx").is_file():
+        return False
     with db() as conn:
         row = conn.execute("SELECT value FROM settings WHERE setting_key='ml_enabled'").fetchone()
     return row is None or row["value"] == "1"
@@ -1803,7 +1870,7 @@ def inspect_response(*, request_jsonrpc_id: Any, protocol: str, content_type: st
                             findings.append(rule_finding)
 
     ml_detections: list[MLDetection] = []
-    if protocol == "mcp" and request_method in ML_METHODS and _ml_enabled():
+    if protocol == "mcp" and request_method in ML_METHODS and _ml_enabled(require_model=classifier is None):
         for payload in payloads:
             if not isinstance(payload, dict) or not isinstance(payload.get("result"), dict):
                 continue
@@ -1889,17 +1956,17 @@ def write_log(agent_id, protocol, source, destination, method, target, tool,
               claimed_target=None, *, transport="http", direction="outbound",
               mcp_method=None, component=None, object_name=None,
               findings: Optional[list[str]] = None,
-              raw_body: Optional[bytes] = None) -> int:
+              raw_body: Optional[bytes] = None, server_id: Optional[int] = None) -> int:
     with db() as conn:
         cur = conn.execute(
             "INSERT INTO logs (timestamp, agent_id, protocol, source, destination, method, target, tool,"
             " action, risk_score, policy_id, decision, reason, request_summary, claimed_target,"
-            " transport, direction, mcp_method, component, object_name, findings)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " transport, direction, mcp_method, component, object_name, findings, server_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (_now(timespec="microseconds"), agent_id, protocol, source, destination, method, target, tool,
              action, risk_score, policy_id, decision, reason, request_summary, claimed_target,
              transport, direction, mcp_method, component, object_name,
-             json.dumps(list(dict.fromkeys(findings or [])))),
+             json.dumps(list(dict.fromkeys(findings or []))), server_id),
         )
         if raw_body is not None:
             conn.execute("INSERT INTO request_bodies VALUES (?, ?, ?)",
@@ -1930,8 +1997,8 @@ def write_response_log(context: dict[str, Any], status_code: int, content_type: 
             " request_method, jsonrpc_id, tool, status_code, content_type, body_size, inspected,"
             " inspection_status, risk_score, findings, response_summary, response_hash,"
             " response_policy_id, policy_action, effective_action, reason, enforcement_mode,"
-            " transport, component, object_name)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " transport, component, object_name, server_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (context["request_log_id"], _now(timespec="microseconds"), context.get("agent_id"), context.get("protocol"),
              context.get("destination"), context.get("request_method"), jsonrpc_id,
              context.get("tool"), status_code, content_type, result.body_size,
@@ -1939,7 +2006,7 @@ def write_response_log(context: dict[str, Any], status_code: int, content_type: 
              json.dumps(result.findings), result.response_summary, result.response_hash,
              policy.response_policy_id, policy.action, effective_action, policy.reason,
              enforcement_mode, context.get("transport", "http"), context.get("component"),
-             context.get("object_name")),
+             context.get("object_name"), context.get("server_id")),
         )
         response_id = cur.lastrowid
         if body is not None:
@@ -2022,13 +2089,15 @@ def mac_session_id(agent_id: str) -> str:
     return f"{agent_id}:{os.getppid()}"
 
 
-def _mac_label(conn: sqlite3.Connection, target: str, object_type: str, object_name: str) -> dict[str, Any]:
+def _mac_label(conn: sqlite3.Connection, target: str, object_type: str, object_name: str,
+               server_id: Optional[int] = None) -> dict[str, Any]:
     """Match by server and object type. Prefer exact names over patterns,
     then named servers, typed rules, and stricter levels and flows."""
     best, best_key = None, None
     for row in conn.execute(
-        "SELECT * FROM mac_labels WHERE target IN (?, '*') AND object_type IN (?, '*')",
-        (target, object_type),
+        "SELECT * FROM mac_labels WHERE object_type IN (?, '*')"
+        " AND (server_id=? OR (server_id IS NULL AND target IN (?, '*')))",
+        (object_type, server_id, target),
     ):
         pattern = row["object_pattern"]
         if pattern == object_name:
@@ -2039,7 +2108,7 @@ def _mac_label(conn: sqlite3.Connection, target: str, object_type: str, object_n
             score = 2
         else:
             continue
-        score += 1 if row["target"] != "*" else 0
+        score += int(row["server_id"] is not None or row["target"] != "*")
         key = (score, row["object_type"] != "*", row["level"], _FLOW_RANK.get(row["flow"], 2))
         if best_key is None or key > best_key:
             best, best_key = row, key
@@ -2058,7 +2127,7 @@ class MacDecision:
 
 
 def evaluate_mac(agent: sqlite3.Row, session_id: str, target: str, mcp_method: str,
-                 object_name: str) -> MacDecision:
+                 object_name: str, *, server_id: Optional[int] = None) -> MacDecision:
     if mcp_method not in MAC_METHODS:
         return MacDecision(True, None, "MAC not applicable", None)
     clearance = agent["clearance"] or MAC_DEFAULT_CLEARANCE
@@ -2069,7 +2138,7 @@ def evaluate_mac(agent: sqlite3.Row, session_id: str, target: str, mcp_method: s
             raise RuntimeError(f"MAC session {session_id} was not issued (fail-closed)")
         session_level = session["level"]
         object_type = MCP_METHODS[mcp_method][0]
-        label = _mac_label(conn, target, object_type, object_name)
+        label = _mac_label(conn, target, object_type, object_name, server_id)
     shown = f"{object_name or mcp_method} (L{label['level']} {label['flow']}" + \
             (", unlabeled)" if label["label_id"] is None else ")")
     context = {"session_id": session_id, "agent_id": agent["agent_id"], "target": target,
@@ -2316,7 +2385,7 @@ _NOT_POLICY = ("/api/logs", "/api/decisions/", "/api/response-decisions/")
 _ADMIN_RESOURCES = [  # (path prefix, Korean name) - longest prefix first
     ("/api/response-policies", "응답 정책"), ("/api/response-decisions", "응답 판정"),
     ("/api/settings/response-enforcement", "응답 차단 모드"), ("/api/mac/labels", "MAC 라벨"),
-    ("/api/policies", "요청 정책"), ("/api/decisions", "요청 판정"), ("/api/agents", "에이전트"),
+    ("/api/mac/files", "파일 등급"), ("/api/mcp/servers", "MCP 서버"), ("/api/policies", "요청 정책"), ("/api/decisions", "요청 판정"), ("/api/agents", "에이전트"),
     ("/api/logs", "로그"),
 ]
 _QUERY_KO = {"token": "토큰 재설정", "clearance": "허가 등급", "status": "상태", "source_ip": "출발지 IP"}
@@ -2381,6 +2450,7 @@ class EvaluationResult:
     log_id: Optional[int]
     mac: Optional[dict[str, Any]] = None   # STDIO: label of an allowed data-access call
     quarantine_generation: int = 0
+    server_id: Optional[int] = None
 
 
 def evaluate_request(headers: dict[str, str], body: dict, *, source: str,
@@ -2399,6 +2469,8 @@ def evaluate_request(headers: dict[str, str], body: dict, *, source: str,
                       component=component if body_method else None, object_name=object_name or None)
 
     try:
+        server_id = resolve_mcp_server(transport, destination, destination_url)
+        mcp_fields["server_id"] = server_id
         auth = authenticate_agent(headers, source)
     except sqlite3.Error:
         auth = AuthResult(False, "agent authentication unavailable (fail-closed)", finding="ENGINE_ERROR")
@@ -2428,7 +2500,8 @@ def evaluate_request(headers: dict[str, str], body: dict, *, source: str,
                 policy = PolicyDecision("DENY", None, reason)
                 findings.notes.append("TRUST_QUARANTINED")
             elif policy.action == "ALLOW":
-                mac = evaluate_mac(agent, mac_session, insp.target, insp.mcp_method, insp.object_name)
+                mac = evaluate_mac(agent, mac_session, insp.target, insp.mcp_method, insp.object_name,
+                                   server_id=server_id)
                 if not mac.allowed:
                     policy = PolicyDecision("DENY", None, mac.reason)
                     findings.notes.append(mac.finding)
@@ -2460,10 +2533,10 @@ def evaluate_request(headers: dict[str, str], body: dict, *, source: str,
         json.dumps(insp.arguments, ensure_ascii=False)[:500], insp.claimed_target,
         transport=transport, mcp_method=insp.mcp_method or None,
         component=insp.component or None, object_name=insp.object_name or None,
-        findings=findings.notes, raw_body=raw_body,
+        findings=findings.notes, raw_body=raw_body, server_id=server_id,
     )
     return EvaluationResult(policy.action, policy.reason, risk.score, risk.factors, findings.notes, log_id,
-                            mac.context if mac and mac.allowed else None, agent["quarantine_generation"])
+                            mac.context if mac and mac.allowed else None, agent["quarantine_generation"], server_id)
 
 
 # --------------------------------------------------------------------------
@@ -2479,6 +2552,7 @@ def request_context(result: EvaluationResult, body: dict, *, agent_id: Optional[
     return {
         "request_log_id": result.log_id,
         "quarantine_generation": result.quarantine_generation,
+        "server_id": result.server_id,
         "agent_id": agent_id,
         "protocol": inspection.protocol,
         "destination": destination,
@@ -2578,7 +2652,7 @@ def record_inbound_message(message: dict, *, agent_id: Optional[str], source: st
         "ALLOW", 0, None, "ALLOW", reason, _redact_sensitive(payload)[:500],
         transport=transport, direction="inbound", mcp_method=insp.mcp_method or None,
         component=insp.component or None, object_name=insp.object_name or None,
-        findings=findings, raw_body=raw_body,
+        findings=findings, raw_body=raw_body, server_id=resolve_mcp_server(transport, destination),
     )
 
 
@@ -3258,6 +3332,64 @@ def run_stdio_cli(argv: list[str]) -> int:
 # FastAPI management API (section 19)
 # --------------------------------------------------------------------------
 
+def protected_file_root() -> Optional[Path]:
+    """The service operator provisions this directory and controls OS access to it."""
+    configured = os.environ.get("MAYAI_PROTECTED_DIR")
+    if configured:
+        root = Path(configured)
+        if root.is_absolute() and root.is_dir():
+            return root.resolve()
+    return None
+
+
+def protected_file_name(value: str) -> str:
+    name = value.strip()
+    if not re.fullmatch(r"[\w-][\w. -]{0,199}", name) or name.endswith("."):
+        raise ValueError("보호 폴더 바로 아래의 파일 이름을 입력하세요.")
+    stem = name.split(".", 1)[0].rstrip().upper()
+    if re.fullmatch(r"CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]", stem):
+        raise ValueError("예약된 장치 이름은 파일로 등록할 수 없습니다.")
+    return name
+
+
+def protected_file_stat(path: Path) -> os.stat_result:
+    info = path.lstat()
+    attributes = getattr(info, "st_file_attributes", 0)
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+        raise ValueError("링크가 없는 일반 파일만 접근할 수 있습니다.")
+    return info
+
+
+def read_protected_text(path: Path) -> str:
+    before = protected_file_stat(path)
+    with path.open("rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not os.path.samestat(before, opened) or opened.st_nlink != 1:
+            raise ValueError("접근하는 동안 파일이 변경되었습니다.")
+        data = stream.read(PROTECTED_FILE_LIMIT + 1)
+    if len(data) > PROTECTED_FILE_LIMIT:
+        raise ValueError("1 MiB 이하의 텍스트 파일만 읽을 수 있습니다.")
+    return data.decode("utf-8")
+
+
+def write_protected_text(path: Path, data: bytes) -> None:
+    # Replace atomically inside the protected directory. The OS must reserve
+    # writes to this directory for MayAI and its administrator.
+    before = protected_file_stat(path)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            temp_path = Path(stream.name)
+            stream.write(data)
+        if not os.path.samestat(before, protected_file_stat(path)):
+            raise ValueError("수정하는 동안 파일이 변경되었습니다.")
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 def build_api():
     from fastapi import FastAPI, HTTPException
     from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -3274,12 +3406,14 @@ def build_api():
               "\n MAYAI_ADMIN_KEY 환경변수로 지정하세요.\n" + "=" * 64, flush=True)
 
     _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+    _AGENT_FILE_CALL = re.compile(r"/api/file-access/[0-9]+/(?:read|write|delegate)")
 
     @app.middleware("http")
     async def admin_guard(request: Request, call_next):
         """Protect mutations and traffic bodies. Audit successful mutations."""
         path = request.url.path
-        guarded = path.startswith("/api/") and request.method in _MUTATING
+        agent_file_call = request.method == "POST" and _AGENT_FILE_CALL.fullmatch(path)
+        guarded = path.startswith("/api/") and request.method in _MUTATING and not agent_file_call
         if guarded or re.fullmatch(r"/api/(logs|responses)/[^/]+/body", path):
             try:
                 ok = admin_key_valid(request.headers.get("x-admin-key", ""))
@@ -3384,9 +3518,32 @@ def build_api():
                 raise ValueError(f"finding must be * or one of: {allowed}")
             return value
 
+    class McpServerIn(BaseModel):
+        name: str
+        stdio_target: str = ""
+        http_url: str = ""
+
+        @model_validator(mode="after")
+        def normalize_endpoints(self):
+            self.name = self.name.strip()
+            self.stdio_target = self.stdio_target.strip().lower()
+            self.http_url = self.http_url.strip()
+            if not self.name:
+                raise ValueError("MCP 서버 이름을 입력하세요.")
+            if not (self.stdio_target or self.http_url):
+                raise ValueError("STDIO 이름이나 HTTP(S) URL을 입력하세요.")
+            if self.stdio_target:
+                if not self.stdio_target.startswith("stdio:"):
+                    self.stdio_target = f"stdio:{self.stdio_target}"
+                self.stdio_target = canonical_target(self.stdio_target)
+            if self.http_url:
+                self.http_url = canonical_http_url(self.http_url)
+            return self
+
     class MacLabelIn(BaseModel):
         name: str
         target: str = "*"
+        server_id: Optional[int] = None
         object_type: Literal["tool", "resource", "prompt", "*"] = "*"
         object_pattern: str = "*"
         level: int
@@ -3404,6 +3561,12 @@ def build_api():
                 return canonical_target(value)
             except ValueError as exc:
                 raise ValueError(str(exc)) from exc
+
+        @model_validator(mode="after")
+        def validate_server(self):
+            if self.server_id is not None and (self.server_id <= 0 or self.target != "*"):
+                raise ValueError("등록 서버와 기존 STDIO 대상을 함께 지정할 수 없습니다.")
+            return self
 
         @field_validator("object_pattern")
         @classmethod
@@ -3560,7 +3723,241 @@ def build_api():
                 raise HTTPException(404, "agent not found")
         return {"status": "deleted", "agent_id": agent_id, "deleted_count": cur.rowcount}
 
+    @app.get("/api/mcp/servers")
+    def list_mcp_servers():
+        with db() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM mcp_servers ORDER BY name")]
+
+    @app.post("/api/mcp/servers")
+    def create_mcp_server(server: McpServerIn):
+        try:
+            with db() as conn:
+                cur = conn.execute("INSERT INTO mcp_servers (name, stdio_target, http_url) VALUES (?,?,?)",
+                                   (server.name, server.stdio_target or None, server.http_url or None))
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "이미 등록된 서버 이름 또는 접속 주소입니다.") from exc
+        return {"status": "created", "server_id": cur.lastrowid}
+
+    @app.put("/api/mcp/servers/{server_id}")
+    def update_mcp_server(server_id: int, server: McpServerIn):
+        try:
+            with db() as conn:
+                cur = conn.execute("UPDATE mcp_servers SET name=?, stdio_target=?, http_url=? WHERE server_id=?",
+                                   (server.name, server.stdio_target or None, server.http_url or None, server_id))
+                if not cur.rowcount:
+                    raise HTTPException(404, "MCP 서버를 찾을 수 없습니다.")
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "이미 등록된 서버 이름 또는 접속 주소입니다.") from exc
+        return {"status": "updated", "server_id": server_id}
+
+    @app.delete("/api/mcp/servers/{server_id}")
+    def delete_mcp_server(server_id: int):
+        try:
+            with db() as conn:
+                cur = conn.execute("DELETE FROM mcp_servers WHERE server_id=?", (server_id,))
+                if not cur.rowcount:
+                    raise HTTPException(404, "MCP 서버를 찾을 수 없습니다.")
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "이 서버를 참조하는 MAC 규칙을 먼저 수정하거나 삭제하세요.") from exc
+        return {"status": "deleted", "server_id": server_id}
+
     # ---- MAC (STDIO zero trust): object labels and live sessions ----
+    class FileLevelIn(BaseModel):
+        level: Literal[1, 2, 3, 4]
+
+    class ProtectedFileIn(FileLevelIn):
+        filename: str
+
+        @field_validator("filename")
+        @classmethod
+        def validate_filename(cls, value: str) -> str:
+            return protected_file_name(value)
+
+    class FileWriteIn(BaseModel):
+        content: str
+
+    class FileDelegationIn(BaseModel):
+        executor_id: str
+        operation: Literal["read", "write"]
+        content: Optional[str] = None
+
+    def require_file_root() -> Path:
+        root = protected_file_root()
+        if root is None:
+            raise HTTPException(503, "MayAI 실행 환경에 보호 폴더를 지정하세요.")
+        return root
+
+    def file_rule(conn: sqlite3.Connection, root: Path, file_id: int) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM mac_files WHERE root=? AND file_id=?", (str(root), file_id)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "등록된 보호 파일을 찾을 수 없습니다.")
+        return row
+
+    def file_actor(conn: sqlite3.Connection, request: Request) -> sqlite3.Row:
+        source = request.client.host if request.client else ""
+        auth = authenticate_agent(dict(request.headers), source, conn=conn)
+        if not auth.allowed:
+            raise HTTPException(403 if auth.finding else 401, auth.reason)
+        return auth.agent
+
+    def check_file_levels(conn: sqlite3.Connection, level: int, operation: str,
+                          participants: tuple[sqlite3.Row, ...]) -> None:
+        for agent in participants:
+            if level > (agent["clearance"] or MAC_DEFAULT_CLEARANCE):
+                raise HTTPException(403, f"MAC_READ_UP_DENY: {agent['agent_id']}의 허가 등급을 초과합니다.")
+            if operation == "write":
+                held = conn.execute("SELECT level FROM file_agent_levels WHERE agent_id=?",
+                                    (agent["agent_id"],)).fetchone()
+                if held and held["level"] > level:
+                    raise HTTPException(403, f"MAC_WRITE_DOWN_DENY: {agent['agent_id']}의 보유 데이터 등급보다 낮습니다.")
+
+    def file_content_bytes(content: str) -> bytes:
+        try:
+            data = content.encode("utf-8")
+        except UnicodeError as exc:
+            raise HTTPException(422, "UTF-8 텍스트를 입력하세요.") from exc
+        if len(data) > PROTECTED_FILE_LIMIT:
+            raise HTTPException(413, "1 MiB 이하의 텍스트를 입력하세요.")
+        return data
+
+    @app.get("/api/mac/files")
+    def list_protected_files():
+        root = protected_file_root()
+        with db() as conn:
+            rows = conn.execute("SELECT file_id, filename, level FROM mac_files WHERE root=? ORDER BY filename",
+                                (str(root),)).fetchall() if root else []
+        return {"configured": root is not None, "files": [dict(row) for row in rows]}
+
+    @app.post("/api/mac/files")
+    def register_protected_file(body: ProtectedFileIn):
+        root = require_file_root()
+        try:
+            if not any(entry.name == body.filename for entry in root.iterdir()):
+                raise ValueError("use the exact filename")
+            protected_file_stat(root / body.filename)
+            with db_tx() as conn:
+                cursor = conn.execute(
+                    "INSERT INTO mac_files (root, filename, filename_key, level) VALUES (?,?,?,?)",
+                    (str(root), body.filename, body.filename.casefold(), body.level),
+                )
+                return {"file_id": cursor.lastrowid}
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "이미 등록된 파일입니다.") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(422, "보호 폴더에 있는 링크 없는 일반 파일을 지정하세요.") from exc
+
+    @app.put("/api/mac/files/{file_id}")
+    def update_protected_file(file_id: int, body: FileLevelIn):
+        root = require_file_root()
+        with db_tx() as conn:
+            file_rule(conn, root, file_id)
+            conn.execute("UPDATE mac_files SET level=? WHERE file_id=?", (body.level, file_id))
+        return {"file_id": file_id}
+
+    @app.delete("/api/mac/files/{file_id}")
+    def unregister_protected_file(file_id: int):
+        root = require_file_root()
+        with db_tx() as conn:
+            file_rule(conn, root, file_id)
+            conn.execute("DELETE FROM mac_files WHERE file_id=?", (file_id,))
+        return {"file_id": file_id}
+
+    @app.post("/api/file-access/{file_id}/delegate")
+    def issue_file_delegation(file_id: int, body: FileDelegationIn, request: Request):
+        root = require_file_root()
+        if (body.operation == "write") != (body.content is not None):
+            raise HTTPException(422, "수정 위임에는 변경할 전체 텍스트가 필요합니다.")
+        content_hash = hashlib.sha256(file_content_bytes(body.content)).hexdigest() if body.content is not None else None
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        with db_tx() as conn:
+            requester = file_actor(conn, request)
+            executor = _agent_row(conn, body.executor_id)
+            if (not executor or executor["status"] != "active" or not executor["token_hash"]
+                    or executor["trust_status"] not in (None, "NORMAL")):
+                raise HTTPException(403, "위임 대상 에이전트를 사용할 수 없습니다.")
+            file = file_rule(conn, root, file_id)
+            check_file_levels(conn, file["level"], body.operation, (requester, executor))
+            conn.execute("DELETE FROM file_delegations WHERE expires_at<=?", (now,))
+            conn.execute(
+                "INSERT INTO file_delegations (token_hash,file_id,requester_id,executor_id,"
+                " requester_token_hash,executor_token_hash,requester_generation,executor_generation,"
+                " operation,content_hash,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (hash_token(token), file_id, requester["agent_id"], executor["agent_id"],
+                 requester["token_hash"], executor["token_hash"], requester["quarantine_generation"],
+                 executor["quarantine_generation"], body.operation, content_hash, now + FILE_DELEGATION_SECONDS),
+            )
+            _audit(conn, f"agent:{requester['agent_id']}", "file_access", "FILE_DELEGATED",
+                   agent_id=requester["agent_id"], detail=f"{body.operation} #{file_id} → {executor['agent_id']}")
+        return JSONResponse({"delegation": token, "expires_in": FILE_DELEGATION_SECONDS},
+                            headers={"Cache-Control": "no-store"})
+
+    def run_file_access(file_id: int, operation: str, request: Request, data: Optional[bytes] = None):
+        root = require_file_root()
+        token = request.headers.get("x-mayai-delegation")
+        executor_id = None
+        try:
+            with db_tx() as conn:
+                executor = file_actor(conn, request)
+                executor_id = executor["agent_id"]
+                file = file_rule(conn, root, file_id)
+                requester = executor
+                if token is not None:
+                    delegation = conn.execute(
+                        "SELECT * FROM file_delegations WHERE token_hash=? AND file_id=? AND executor_id=?"
+                        " AND operation=? AND expires_at>?",
+                        (hash_token(token), file_id, executor_id, operation, time.time()),
+                    ).fetchone()
+                    if not delegation:
+                        raise HTTPException(403, "사용 가능한 파일 위임이 없습니다.")
+                    requester = _agent_row(conn, delegation["requester_id"])
+                    if (not requester or requester["status"] != "active"
+                            or requester["trust_status"] not in (None, "NORMAL")
+                            or requester["token_hash"] != delegation["requester_token_hash"]
+                            or requester["quarantine_generation"] != delegation["requester_generation"]
+                            or executor["token_hash"] != delegation["executor_token_hash"]
+                            or executor["quarantine_generation"] != delegation["executor_generation"]):
+                        raise HTTPException(403, "위임에 사용된 에이전트 인증 상태가 변경되었습니다.")
+                    if data is not None and hashlib.sha256(data).hexdigest() != delegation["content_hash"]:
+                        raise HTTPException(403, "위임받은 수정 내용과 일치하지 않습니다.")
+                participants = (executor,) if requester["agent_id"] == executor_id else (requester, executor)
+                check_file_levels(conn, file["level"], operation, participants)
+                path = root / file["filename"]
+                result = {"file_id": file_id, "level": file["level"]}
+                if token is not None:
+                    conn.execute("DELETE FROM file_delegations WHERE token_hash=?", (hash_token(token),))
+                _audit(conn, f"agent:{executor_id}", "file_access", f"FILE_{operation.upper()}",
+                       agent_id=requester["agent_id"], detail=f"#{file_id} {file['filename']}")
+                try:
+                    if data is None:
+                        result["content"] = read_protected_text(path)
+                        conn.executemany(
+                            "INSERT INTO file_agent_levels (agent_id,level) VALUES (?,?)"
+                            " ON CONFLICT(agent_id) DO UPDATE SET level=MAX(level, excluded.level)",
+                            [(agent["agent_id"], file["level"]) for agent in participants],
+                        )
+                    else:
+                        write_protected_text(path, data)
+                except (OSError, ValueError) as exc:
+                    raise HTTPException(409, "보호 파일이 이동됐거나 처리할 수 없는 형식입니다.") from exc
+        except HTTPException as exc:
+            if executor_id:
+                with db_tx() as conn:
+                    _audit(conn, f"agent:{executor_id}", "file_access", "FILE_ACCESS_DENIED",
+                           agent_id=executor_id, detail=f"{operation} #{file_id} · {exc.detail}")
+            raise
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/file-access/{file_id}/read")
+    def read_file_access(file_id: int, request: Request):
+        return run_file_access(file_id, "read", request)
+
+    @app.post("/api/file-access/{file_id}/write")
+    def write_file_access(file_id: int, body: FileWriteIn, request: Request):
+        return run_file_access(file_id, "write", request, file_content_bytes(body.content))
+
     @app.get("/api/mac/levels")
     def mac_levels():
         return {"levels": MAC_LEVELS, "flows": list(MAC_FLOWS), "default_clearance": MAC_DEFAULT_CLEARANCE,
@@ -3573,22 +3970,30 @@ def build_api():
 
     @app.post("/api/mac/labels")
     def create_mac_label(label: MacLabelIn):
-        with db() as conn:
+        with db_tx() as conn:
+            if label.server_id is not None and not conn.execute(
+                "SELECT 1 FROM mcp_servers WHERE server_id=?", (label.server_id,)
+            ).fetchone():
+                raise HTTPException(404, "MCP 서버를 찾을 수 없습니다.")
             cur = conn.execute(
-                "INSERT INTO mac_labels (name, target, object_type, object_pattern, level, flow, description,"
-                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (label.name, label.target, label.object_type, label.object_pattern, label.level, label.flow,
-                 label.description, _now(), _now()))
+                "INSERT INTO mac_labels (name, target, server_id, object_type, object_pattern, level, flow,"
+                " description, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (label.name, label.target, label.server_id, label.object_type, label.object_pattern,
+                 label.level, label.flow, label.description, _now(), _now()))
         return {"status": "created", "label_id": cur.lastrowid}
 
     @app.put("/api/mac/labels/{label_id}")
     def update_mac_label(label_id: int, label: MacLabelIn):
-        with db() as conn:
+        with db_tx() as conn:
+            if label.server_id is not None and not conn.execute(
+                "SELECT 1 FROM mcp_servers WHERE server_id=?", (label.server_id,)
+            ).fetchone():
+                raise HTTPException(404, "MCP 서버를 찾을 수 없습니다.")
             cur = conn.execute(
-                "UPDATE mac_labels SET name=?, target=?, object_type=?, object_pattern=?, level=?, flow=?,"
-                " description=?, updated_at=? WHERE label_id=?",
-                (label.name, label.target, label.object_type, label.object_pattern, label.level, label.flow,
-                 label.description, _now(), label_id))
+                "UPDATE mac_labels SET name=?, target=?, server_id=?, object_type=?, object_pattern=?,"
+                " level=?, flow=?, description=?, updated_at=? WHERE label_id=?",
+                (label.name, label.target, label.server_id, label.object_type, label.object_pattern,
+                 label.level, label.flow, label.description, _now(), label_id))
             if cur.rowcount == 0:
                 raise HTTPException(404, "MAC label not found")
         return {"status": "updated"}
@@ -3858,6 +4263,73 @@ def build_api():
         item.pop("risk_score", None)
         return item
 
+    @app.get("/api/overview")
+    def dashboard_overview():
+        root = protected_file_root()
+        bucket_seconds = 2 * 60 * 60
+        end = int(time.time()) + 1
+        start = end - 12 * bucket_seconds
+        buckets = [{"start": start + i * bucket_seconds, "requests": 0, "responses": 0} for i in range(12)]
+        traffic = {kind: {"total": 0, "denied": 0} for kind in ("requests", "responses")}
+        transports = {"http": 0, "stdio": 0}
+        with db() as conn:
+            conn.execute("BEGIN")
+            rows = conn.execute(
+                """WITH traffic AS (
+                       SELECT 'requests' AS kind, CAST(strftime('%s', timestamp) AS INTEGER) AS ts,
+                              decision AS verdict, COALESCE(transport, 'http') AS transport
+                       FROM logs WHERE direction IS NULL OR direction='outbound'
+                       UNION ALL
+                       SELECT 'responses', CAST(strftime('%s', timestamp) AS INTEGER), effective_action, COALESCE(transport, 'http')
+                       FROM response_logs
+                   )
+                   SELECT kind, (ts - ?) / ? AS bucket, transport,
+                          COUNT(*) AS total, SUM(CASE WHEN verdict='DENY' THEN 1 ELSE 0 END) AS denied
+                   FROM traffic WHERE ts >= ? AND ts < ?
+                   GROUP BY kind, bucket, transport""",
+                (start, bucket_seconds, start, end),
+            )
+            for row in rows:
+                kind, total = row["kind"], row["total"]
+                buckets[row["bucket"]][kind] += total
+                traffic[kind]["total"] += total
+                traffic[kind]["denied"] += row["denied"]
+                if row["transport"] in transports:
+                    transports[row["transport"]] += total
+
+            agents = conn.execute(
+                """SELECT COUNT(*) AS total,
+                          COUNT(CASE WHEN a.status='active' THEN 1 END) AS active,
+                          COUNT(CASE WHEN t.trust_status='COMPROMISED' THEN 1 END) AS quarantined
+                   FROM agents a LEFT JOIN agent_trust t ON a.agent_id=t.agent_id"""
+            ).fetchone()
+            events = conn.execute(
+                """SELECT COUNT(*) AS open, COUNT(CASE WHEN severity='high' THEN 1 END) AS high
+                   FROM events WHERE status='open'"""
+            ).fetchone()
+            latest_events = conn.execute(
+                """SELECT timestamp, agent_id, event_type, severity FROM events
+                   WHERE status='open' ORDER BY event_id DESC LIMIT 4"""
+            ).fetchall()
+            policies = {}
+            for table in ("policies", "response_policies"):
+                policies[table] = dict(conn.execute(
+                    f"SELECT COUNT(*) AS total, COUNT(CASE WHEN enabled=1 THEN 1 END) AS enabled FROM {table}"
+                ).fetchone())
+            files = conn.execute("SELECT COUNT(*) FROM mac_files WHERE root=?", (str(root),)).fetchone()[0] if root else 0
+            latest_audit = conn.execute("SELECT timestamp, category, action FROM audit_log ORDER BY audit_id DESC LIMIT 1").fetchone()
+            mode = get_response_enforcement_mode(conn)
+
+        return {
+            "traffic": traffic, "buckets": buckets, "transports": transports, "agents": dict(agents),
+            "events": {**dict(events), "latest": [
+                {**dict(row), "label": DETECTION_RULES.get(row["event_type"], {}).get("label", row["event_type"])}
+                for row in latest_events
+            ]},
+            "policies": policies, "response_mode": mode, "files": {"configured": root is not None, "total": files},
+            "latest_audit": dict(latest_audit) if latest_audit else None,
+        }
+
     @app.get("/api/logs")
     def list_logs(limit: int = 100, requests_only: bool = False):
         where = " WHERE direction IS NULL OR direction = 'outbound'" if requests_only else ""
@@ -3882,7 +4354,10 @@ def build_api():
     @app.get("/api/logs/{log_id}")
     def get_log(log_id: int):
         with db() as conn:
-            row = conn.execute("SELECT * FROM logs WHERE log_id=?", (log_id,)).fetchone()
+            row = conn.execute(
+                "SELECT l.*, s.name AS server_name FROM logs l"
+                " LEFT JOIN mcp_servers s USING (server_id) WHERE l.log_id=?", (log_id,),
+            ).fetchone()
             if row is None:
                 raise HTTPException(404, "log not found")
             responses = conn.execute(
@@ -3942,7 +4417,8 @@ def build_api():
     def get_response(response_id: int):
         with db() as conn:
             row = conn.execute(
-                "SELECT * FROM response_logs WHERE response_id=?", (response_id,)
+                "SELECT r.*, s.name AS server_name FROM response_logs r"
+                " LEFT JOIN mcp_servers s USING (server_id) WHERE r.response_id=?", (response_id,),
             ).fetchone()
         if not row:
             raise HTTPException(404, "response not found")
@@ -4039,7 +4515,8 @@ def build_api():
 
     @app.get("/api/ml/status")
     def ml_status():
-        if _ml_enabled():
+        enabled = _ml_enabled()
+        if enabled:
             _get_ml_classifier()
         with db() as conn:
             counts = {
@@ -4068,9 +4545,9 @@ def build_api():
             return round(latencies[min(len(latencies) - 1, math.ceil(len(latencies) * fraction) - 1)], 2)
 
         return {
-            "enabled": _ml_enabled(),
-            "loaded": _ML_CLASSIFIER is not None,
-            "load_error": _ML_LOAD_ERROR,
+            "enabled": enabled,
+            "loaded": enabled and _ML_CLASSIFIER is not None,
+            "load_error": _ML_LOAD_ERROR if enabled else "",
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
             "threshold_version": THRESHOLD_VERSION,
@@ -4950,4 +5427,4 @@ if __name__ == "__main__":
     else:
         init_db()
         import uvicorn
-        uvicorn.run(build_api(), host="127.0.0.1", port=8000)
+        uvicorn.run(build_api(), host="127.0.0.1", port=8000, proxy_headers=False)

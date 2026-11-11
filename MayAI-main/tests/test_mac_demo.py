@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 """
-STDIO zero trust demo: MAC + persistent agent trust.
+STDIO MAC and quarantine demo against a running MayAI management API.
 
-    $env:MAYAI_ADMIN_KEY = "<관리자 키>"      # or --admin-key
-    python tests/test_mac_demo.py     # add --step to advance one step per Enter
+    python tests/test_mac_demo.py         # add --step to pause before each call
 
-Each run registers a fresh demo agent (clearance L2), demonstrates MAC,
-then manually quarantines the agent to test the effect on a fresh process.
-One agent run = this process, so all calls share one MAC session (agent:pid). Every
-"server" is tests/test_mcp_server.py --stdio under a different --server-name:
-
-    stdio:hr-db  get_secret   L3 Restricted  read     (급여·접속정보 DB)
-    stdio:docs   fetch_page   L2 Internal    read     (업무 문서)
-    stdio:docs   delete_file  L2 Internal    write
-    stdio:chat   echo         L1 Public      egress   (외부 메신저로 전송)
-
-Stdlib only; needs the management API (python MayAI.py) on 127.0.0.1:8000 (--api)
-and the same NAC_DB_PATH in every terminal.
+Use the same NAC_DB_PATH and MAYAI_ADMIN_KEY as the management server.
+Each run creates its own agent, registered servers, and typed MAC labels.
 """
 
 import argparse
@@ -25,31 +14,32 @@ import json
 import os
 import subprocess
 import sys
-import time
+import uuid
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from test_agent_client import reply_ok, stdio_exchange
+
 HERE = Path(__file__).resolve().parent          # tests/
-ROOT = HERE.parent                              # MayAI.py lives here
-
+# Alias, object type, name or URI, level, and data flow.
 LABELS = [
-    {"name": "급여·접속정보 DB", "target": "stdio:hr-db", "object_pattern": "get_secret", "level": 3, "flow": "read"},
-    {"name": "업무 문서 읽기", "target": "stdio:docs", "object_pattern": "fetch_page", "level": 2, "flow": "read"},
-    {"name": "업무 문서 삭제", "target": "stdio:docs", "object_pattern": "delete_file", "level": 2, "flow": "write"},
-    {"name": "외부 메신저 전송", "target": "stdio:chat", "object_pattern": "echo", "level": 1, "flow": "egress"},
+    ("hr-db", "tool", "get_secret", 3, "read"),
+    ("docs", "tool", "fetch_page", 2, "read"),
+    ("docs", "tool", "delete_file", 2, "write"),
+    ("docs", "resource", "file:///docs/readme.md", 2, "read"),
+    ("docs", "prompt", "code_review", 2, "read"),
+    ("chat", "tool", "echo", 1, "egress"),
 ]
-READ = ("docs", "fetch_page", {"page": "safe"})
-WRITE = ("docs", "delete_file", {"path": "/tmp/a"})
-SEND = ("chat", "echo", {"text": "방금 읽은 문서 내용"})
-SECRET = ("hr-db", "get_secret", {})
-
+# Alias, method, identifier, arguments, expected session level, and denial reason.
 SCENARIO = [
-    (SEND, "새 세션(L1): L1 외부 전송 가능"),
-    (READ, "L2 문서 읽기 -> 세션 등급 L2"),
-    (WRITE, "같은 등급(L2) 쓰기 가능"),
-    (SEND, "MAC 하위 등급 유출 차단"),
-    (SECRET, "MAC 상위 등급 접근 차단 (L3 > 허가 L2)"),
+    ("chat", "tools/call", "echo", {"text": "공개 자료"}, 1, ""),
+    ("docs", "resources/read", "file:///docs/readme.md", {}, 2, ""),
+    ("docs", "prompts/get", "code_review", {"diff": "+ print(1)"}, 2, ""),
+    ("docs", "tools/call", "delete_file", {"path": "/tmp/a"}, 2, ""),
+    ("chat", "tools/call", "echo", {"text": "방금 읽은 문서"}, 2, "leak it down"),
+    ("hr-db", "tools/call", "get_secret", {}, 2, "above agent clearance"),
+    ("docs", "tools/call", "code_review", {}, 2, "unlabeled"),
 ]
 
 
@@ -60,7 +50,7 @@ class Api:
     def key_valid(self, key: str) -> bool:
         req = urllib.request.Request(self.base + "/api/admin/verify", headers={"X-Admin-Key": key})
         try:
-            with urllib.request.urlopen(req) as r:
+            with urllib.request.urlopen(req, timeout=10) as r:
                 return json.loads(r.read()).get("valid") is True
         except urllib.error.HTTPError as e:
             if e.code == 404:
@@ -91,7 +81,7 @@ class Api:
                                      data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Content-Type": "application/json", "X-Admin-Key": self.key})
         try:
-            with urllib.request.urlopen(req) as r:
+            with urllib.request.urlopen(req, timeout=10) as r:
                 return json.loads(r.read() or b"null")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
@@ -100,35 +90,19 @@ class Api:
             raise SystemExit(f"{method} {path} -> HTTP {e.code}: {detail[:200]}") from e
 
 
-def call_tool(agent: str, token: str, server: str, tool: str, args: dict) -> dict:
-    """One tools/call through a fresh STDIO proxy (stdin is closed after the
-    request). The first allowed call per process loads the ML model, so an
-    allowed step can take 30 s to 1 min; denied steps return at once."""
-    request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}}
-    cmd = [sys.executable, str(ROOT / "MayAI.py"), "stdio", "--server-name", server, "--",
-           sys.executable, str(HERE / "test_mcp_server.py"), "--stdio"]
-    env = dict(os.environ, MAYAI_AGENT_ID=agent, MAYAI_AGENT_TOKEN=token)
-    try:
-        out = subprocess.run(cmd, input=json.dumps(request) + "\n", capture_output=True, text=True,
-                             encoding="utf-8", env=env, timeout=300)
-    except subprocess.TimeoutExpired:
-        raise SystemExit(f"stdio:{server}: 300초 안에 응답이 없습니다") from None
-    lines = [line for line in out.stdout.splitlines() if line.strip()]
-    if not lines:
-        raise SystemExit(f"no reply from the STDIO proxy:\n{out.stderr}")
-    return json.loads(lines[0])
+def call_object(agent: str, token: str, server: str, method: str, identifier: str, args: dict) -> dict:
+    params = {"uri": identifier} if method == "resources/read" else {"name": identifier, "arguments": args}
+    request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    return stdio_exchange(agent, token, server, json.dumps(request), 1)
 
 
-def verdict(reply: dict) -> str:
-    if "error" not in reply:
-        return "허용"
-    return "차단  " + reply["error"].get("data", {}).get("reason", reply["error"].get("message", ""))
+def denial_reason(reply: dict) -> str:
+    error = reply.get("error", {})
+    return error.get("data", {}).get("reason", error.get("message", ""))
 
 
-def state(api: Api, agent: str) -> str:
-    row = next(r for r in api.call("GET", "/api/trust") if r["agent_id"] == agent)
-    level = max((s["level"] for s in row["sessions"] if not s["revoked"]), default=None)
-    return f"신뢰={row['trust_status']}" + (f" 세션=L{level}" if level else " 세션=없음/폐기")
+def agent_state(api: Api, agent: str) -> dict:
+    return next(row for row in api.call("GET", "/api/trust") if row["agent_id"] == agent)
 
 
 def main() -> int:
@@ -136,41 +110,77 @@ def main() -> int:
     p.add_argument("--api", default="http://127.0.0.1:8000")
     p.add_argument("--admin-key", default=os.environ.get("MAYAI_ADMIN_KEY", ""))
     p.add_argument("--step", action="store_true", help="Enter를 누를 때마다 한 단계씩 진행 (발표용)")
-    p.add_argument("--single", nargs=4, metavar=("AGENT", "TOKEN", "SERVER", "TOOL"),
-                   help=argparse.SUPPRESS)   # internal: one call from a NEW agent run (new process)
     o = p.parse_args()
-    if o.single:
-        print(verdict(call_tool(*o.single, {"page": "safe"})))
-        return 0
-
     api = Api(o.api, o.admin_key)
     api.ensure_key()
-    agent, token = f"demo-{time.strftime('%H%M%S')}", "demo-token"
+
+    agent, token = f"demo-{uuid.uuid4().hex[:8]}", "demo-token"
     api.call("POST", "/api/agents", {"agent_id": agent, "agent_name": "MAC 데모 에이전트", "token": token,
                                      "source_ip": "127.0.0.1", "clearance": 2})
     api.call("POST", "/api/policies", {"name": f"{agent}-allow", "agent_id": agent, "target": "*",
-                                       "tool": "*", "action": "ALLOW"})
-    existing = {(l["target"], l["object_pattern"]) for l in api.call("GET", "/api/mac/labels")}
-    for label in LABELS:
-        if (label["target"], label["object_pattern"]) not in existing:
-            api.call("POST", "/api/mac/labels", label)
-    print(f"데모 에이전트 {agent} (허가 L2) · 에이전트 실행 pid={os.getpid()} -> 세션 {agent}:{os.getpid()}\n")
+                                       "mcp_method": "*", "tool": "*", "action": "ALLOW"})
+    servers = {}
+    for alias, kind, identifier, level, flow in LABELS:
+        if alias not in servers:
+            name = f"{agent}-{alias}"
+            created = api.call("POST", "/api/mcp/servers", {"name": name, "stdio_target": name})
+            servers[alias] = (name, created["server_id"])
+        api.call("POST", "/api/mac/labels", {"name": f"{agent} {identifier}", "server_id": servers[alias][1],
+                                             "object_type": kind, "object_pattern": identifier,
+                                             "level": level, "flow": flow})
 
-    print("허용되는 단계는 응답 ML 검사 모델을 불러오느라 30초~1분 걸릴 수 있습니다.\n", flush=True)
-    for n, ((server, tool, args), why) in enumerate(SCENARIO, 1):
+    session_id = None
+    known_sessions = set()
+    print(f"데모 에이전트 {agent} (허가 L2)", flush=True)
+    try:
+        for n, (alias, method, identifier, args, expected_level, expected_denial) in enumerate(SCENARIO, 1):
+            server, server_id = servers[alias]
+            if o.step:
+                input(f"[Enter] {n}단계 {method} {identifier} ")
+            reply = call_object(agent, token, server, method, identifier, args)
+            reason = denial_reason(reply)
+            if expected_denial:
+                if expected_denial not in reason or reply.get("error", {}).get("code") != -32003:
+                    raise RuntimeError(f"{n}단계에서 예상한 MAC 차단이 발생하지 않았습니다. {reply}")
+            elif not reply_ok(reply, 1):
+                raise RuntimeError(f"{n}단계에서 허용을 기대했습니다. {reply}")
+
+            sessions = {s["session_id"]: s for s in agent_state(api, agent)["sessions"]}
+            # A Windows Python launcher can give each proxy a different parent
+            # PID. In that case the new session inherits the previous level.
+            new_sessions = sessions.keys() - known_sessions
+            if len(new_sessions) == 1:
+                session_id = new_sessions.pop()
+            known_sessions.update(sessions)
+            session = sessions.get(session_id)
+            if not session or session["level"] != expected_level or session["revoked"]:
+                raise RuntimeError(f"{n}단계에서 세션 등급 L{expected_level}을 기대했습니다. {session}")
+            logs = api.call("GET", "/api/logs?limit=50")
+            latest = next((row for row in logs if row["agent_id"] == agent and row["direction"] == "outbound"), None)
+            if not latest or latest["server_id"] != server_id:
+                raise RuntimeError(f"{n}단계에서 등록 서버 #{server_id} 기록을 찾지 못했습니다.")
+            print(f"{n}. {method} {identifier} · 서버 #{server_id} · 세션 {session_id} L{expected_level} · {reason or '허용'}",
+                  flush=True)
+
         if o.step:
-            input(f"[Enter] {n}단계: stdio:{server} {tool} ")
-        result = verdict(call_tool(agent, token, server, tool, args))
-        print(f"{n}. stdio:{server:6} {tool:12} -> {result}\n   ({why})\n   [{state(api, agent)}]", flush=True)
+            input("[Enter] 데모 에이전트 격리 ")
+        api.call("POST", f"/api/trust/{agent}/quarantine", {"approver": "MAC demo", "reason": "격리 동작 확인"})
+        state = agent_state(api, agent)
+        if state["trust_status"] != "COMPROMISED" or any(not s["revoked"] for s in state["sessions"]):
+            raise RuntimeError("격리 상태와 세션 폐기를 확인하지 못했습니다.")
+        child = subprocess.run(
+            [sys.executable, str(HERE / "test_agent_client.py"), "tools/list", "--stdio", servers["docs"][0],
+             "--agent", agent, "--token", token], capture_output=True, encoding="utf-8",
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"), timeout=130,
+        )
+        if child.returncode != 1 or "agent quarantined" not in child.stdout:
+            raise RuntimeError(f"새 프로세스의 요청이 격리로 차단되지 않았습니다. {child.stdout} {child.stderr}")
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        print(f"MAC 데모 실패: {exc}", file=sys.stderr)
+        return 1
 
-    if o.step:
-        input("[Enter] 데모 에이전트 격리 ")
-    api.call("POST", f"/api/trust/{agent}/quarantine", {"approver": "MAC demo", "reason": "격리 동작 확인"})
-    print(f"\n격리 조치 후 [{state(api, agent)}]")
-    child = subprocess.run([sys.executable, __file__, "--single", agent, token, "docs", "fetch_page"],
-                           capture_output=True, text=True, encoding="utf-8")
-    print(f"   새 프로세스의 호출 -> {child.stdout.strip()}")
-    print(f"\n대시보드의 에이전트 메뉴에서 {agent}의 토큰을 재설정한 뒤 신뢰 상태 관리에서 격리를 해제하세요.")
+    print(f"MAC 데모 통과 · 에이전트 {agent} 격리 및 새 프로세스 차단 확인")
+    print("격리 해제를 확인하려면 대시보드에서 이 에이전트의 토큰을 교체하고 조치 내용을 입력하세요.")
     return 0
 
 
