@@ -137,3 +137,34 @@ claude --strict-mcp-config --mcp-config .mcp.json --tools ""
 ```
 
 운영이 끝나면 노트북의 Claude 세션을 종료하고 PC의 프록시·테스트 서버·관리 API를 종료한다. 행사 때문에 열었던 방화벽 규칙이 있으면 제거한다.
+
+## 6. 리허설 로그 정리
+
+리허설이 끝나면 MayAI PC의 **관리 API(터미널 A)**와 **프록시(터미널 D)**를 `Ctrl+C`로 종료한다. 아래 명령을 `MayAI-main`에서 실행한다. `$boothDb`는 A와 D에서 실제 사용한 `NAC_DB_PATH`로 맞춘다. 기본 DB를 사용했다면 `(Resolve-Path .\nac.db).Path`를 지정한다.
+
+```powershell
+$boothDb = Join-Path $env:TEMP 'mayai-booth-1112\booth.db'
+@'
+import sqlite3
+import sys
+from contextlib import closing
+from pathlib import Path
+
+db = Path(sys.argv[1]).resolve(strict=True)
+tables = ('response_bodies', 'request_bodies', 'ml_detections',
+          'response_logs', 'logs', 'events')
+print(db)
+with closing(sqlite3.connect(db.as_uri() + '?mode=rw', uri=True)) as conn:
+    conn.execute('PRAGMA foreign_keys = ON')
+    with conn:
+        conn.execute('BEGIN IMMEDIATE')
+        for table in tables:
+            deleted = conn.execute(f'DELETE FROM {table}').rowcount
+            remaining = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+            print(f'{table}: deleted={deleted}, remaining={remaining}')
+'@ | python - $boothDb
+```
+
+모든 `remaining`이 `0`이면 A와 D를 같은 DB 경로로 다시 띄우고 대시보드를 새로고침한다. 이 작업은 요청·응답 로그와 저장된 본문, 보안 이벤트, ML 탐지 기록을 정리한다. 에이전트, 정책, 파일 등급과 추가 전용 감사 로그는 보존된다.
+
+시연 3의 **파일 접근 감사 로그까지 빈 상태로 시작**하려면 기존 DB를 보관하고 A와 D에 새 `NAC_DB_PATH`를 지정한 뒤 **터미널 E의 `Configure`**를 다시 실행한다. 새 DB에는 등록 과정에서 생긴 관리자 감사 기록이 남는다. **감사 로그 → 파일 접근** 필터는 첫 파일 읽기 전까지 비어 있다.
