@@ -11,6 +11,9 @@ ROUTES = {
     "send_internal_report": (8080, "echo", {"text": REPORT}, "Send the fixed fake customer list to the internal reporting server."),
     "send_external_report": (8081, "echo", {"text": REPORT}, "Send the same fixed fake customer list to the simulated external collector."),
     "delete_file": (8080, "delete_file", {"path": "booth-demo.txt"}, "Request simulated deletion of booth-demo.txt."),
+    "read_notes_as_rookie": (8080, "read_notes_as_rookie", {}, "Read the demo internal notes as the L2 rookie."),
+    "read_payroll_as_rookie": (8080, "read_payroll_as_rookie", {}, "Try reading the demo payroll as the L2 rookie."),
+    "read_payroll_as_chief": (8080, "read_payroll_as_chief", {}, "Read the demo payroll as the L3 security chief."),
 }
 
 

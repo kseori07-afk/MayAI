@@ -1,10 +1,10 @@
-# 11월 12일 MayAI 전시 부스 운영 가이드
+# MayAI 전시 부스 운영 가이드
 
 | 번호 | 시연 | 입력하는 사람 | 보여줄 결과 |
 |---|---|---|---|
 | 1 | 악당 에이전트의 자료 반출 시도 | 관람객이 Claude Code 채팅에 입력 | 같은 가짜 고객 목록이 사내 보고 서버로는 전달되고, 외부 수집 서버로는 전달이 차단됨 |
 | 2 | 파일 삭제 도구 정책 | 관람객이 입력하고 운영자가 정책을 전환 | 동일한 `delete_file` 호출이 정책에 따라 차단됐다가 허용됨 |
-| 3 | 보호 파일 강제 접근제어(MAC) | 운영자가 MayAI PC에서 읽기 요청 실행 | 신입 요원은 L3 급여 파일 읽기 차단, 보안 책임자는 같은 파일 읽기 허용 |
+| 3 | 보호 파일 강제 접근제어(MAC) | 관람객이 Claude Code 채팅에서 역할과 파일을 선택 | L2 신입 요원은 내부 메모 읽기 허용·급여 파일 읽기 차단, L3 보안 책임자는 같은 급여 파일 읽기 허용 |
 
 기본 관람 흐름은 **1 → 3**으로 약 3분을 잡는다. 도구 정책을 더 보고 싶어 하는 관람객에게 **2**를 추가한다. 나머지 기능은 설명으로 소개한다.
 
@@ -17,7 +17,7 @@
 ```text
 노트북 Claude Code → 로컬 MCP bridge.py → MayAI PC 8080 → 사내 보고 서버 9100
                                        → MayAI PC 8081 → 외부 수집 서버 9101 (모의)
-MayAI PC 운영자 → 로컬 파일 접근 API 8000 → 보호 폴더 및 파일 접근 감사 로그
+사내 보고 서버 9100 (파일 시연 도구) → 로컬 파일 접근 API 8000 → 보호 폴더 및 파일 접근 감사 로그
 ```
 
 8080·8081은 고정된 테스트 서버로 연결하는 MayAI 리버스 프록시 포트다. 관리 API 8000과 테스트 서버 9100·9101은 MayAI PC의 루프백에 둔다. Windows 방화벽에서 수신 규칙이 필요하면 TCP 8080·8081을 노트북 IPv4에 한해 연다. 이 데모는 사설망에서 가짜 데이터와 행사 전용 토큰으로 진행한다.
@@ -47,9 +47,12 @@ python MayAI.py
 
 ### 터미널 B·C · 수신 서버 두 개
 
+터미널 B에는 기존 `booth-rookie`와 `booth-chief`를 등록할 때 사용한 파일 시연 토큰을 설정한다. 새 DB를 준비할 때는 터미널 E의 `MAYAI_BOOTH_FILE_TOKEN`과 동일한 값을 사용한다.
+
 ```powershell
-# B · 사내 보고 서버
-python tests/test_mcp_server.py --port 9100 --check-agent-headers
+# B · 사내 보고 서버 및 시연용 파일 읽기 도구
+$env:MAYAI_BOOTH_FILE_TOKEN = '<PC 전용 파일 시연 토큰>'
+python tests/test_mcp_server.py --port 9100 --check-agent-headers --booth-files
 ```
 
 ```powershell
@@ -80,7 +83,13 @@ $env:MAYAI_BOOTH_FILE_TOKEN = '<PC 전용 파일 시연 토큰>'
 ./examples/booth/operate.ps1 -Action Configure -LaptopIp '<노트북 IPv4>'
 ```
 
-`Configure`는 빈 행사 DB에 한 번 실행한다. 등록 중 실패했다면 오류를 해결한 뒤 A와 D를 같은 새 DB 경로로 다시 띄워 설정한다. 노트북 IP만 바뀌면 **에이전트 → 악당 에이전트 → IP 설정**에서 수정한다. 운영 중 E를 열어 두면 시연 3을 같은 터미널에서 바로 실행할 수 있다.
+`Configure`는 빈 행사 DB에 한 번 실행한다. 등록 중 실패했다면 오류를 해결한 뒤 A와 D를 같은 새 DB 경로로 다시 띄워 설정한다. 노트북 IP만 바뀌면 **에이전트 → 악당 에이전트 → IP 설정**에서 수정한다.
+
+### 이미 구성한 전시 DB로 파일 읽기 체험 추가
+
+1. 터미널 E에서 `MAYAI_ADMIN_KEY`를 설정하고 `./examples/booth/operate.ps1 -Action EnableFileTools`를 실행한다. 기존 전시 DB에 사내 보고 서버의 파일 읽기 MCP 도구 세 개를 호출할 수 있는 정책을 추가한다. 재실행해도 활성 정책이 중복 등록되지 않는다.
+2. 터미널 B의 기존 사내 보고 서버를 종료하고, 위의 `--booth-files` 명령으로 다시 띄운다.
+3. 노트북의 Claude Code를 종료하고 최신 `bridge.py`와 `CLAUDE.md`를 복사한 뒤 아래 노트북 준비 절차대로 Claude Code를 다시 시작한다.
 
 ## 3. 노트북 준비
 
@@ -115,26 +124,33 @@ claude --strict-mcp-config --mcp-config .mcp.json --tools ""
 ### 시연 3 · 같은 보호 파일, 다른 허가 등급
 
 1. 대시보드에서 **파일 접근 제어**에 등록된 `notes.txt` L2와 `payroll.txt` L3를 보여준다. **감사 로그 → 파일 접근**으로 이동한다.
-2. PC의 터미널 E에서 아래 명령을 실행한다. 신입 요원의 내부 메모 읽기 **200**, 급여 파일 읽기 **403 / `MAC_READ_UP_DENY`**, 보안 책임자의 같은 급여 파일 읽기 **200**이 차례로 출력된다.
-3. 감사 로그에서 **신입 요원 · L2**와 **보안 책임자 · L3**의 기록을 비교한다. 이 흐름은 읽기만 사용하므로 회차마다 다시 실행할 수 있다. 보호 파일은 PC의 MayAI 파일 접근 API로 처리한다.
+2. 관람객이 Claude Code에 아래 문장을 한 번씩 입력한다.
 
-```powershell
-./examples/booth/operate.ps1 -Action Files
-```
+   | 입력 예시 | 결과 |
+   |---|---|
+   | “신입 요원으로 내부 메모를 읽어줘.” | **허용** · L2 메모 내용 표시 |
+   | “신입 요원으로 급여 파일을 읽어줘.” | **차단** · `MAC_READ_UP_DENY` |
+   | “보안 책임자로 같은 급여 파일을 읽어줘.” | **허용** · L3 급여 파일의 데모 내용 표시 |
+
+3. 감사 로그에서 **신입 요원 · L2**와 **보안 책임자 · L3**의 기록을 비교한다. 트래픽 피드에는 `악당 에이전트`의 MCP 도구 호출 판정이, 파일 접근 감사 로그에는 선택한 역할의 실제 파일 접근 판정이 표시된다. MCP 도구 호출이 허용돼도 해당 역할의 파일 읽기는 MAC에서 차단될 수 있다.
 
 ## 5. 리허설과 대체 진행
 
 - 개장 전에 노트북의 Claude Code로 시연 1의 두 요청을 실행한다. 채팅 결과와 함께 PC 트래픽 피드에 **사내 보고 서버 허용 → 외부 수집 서버 차단**이 찍혀야 한다.
-- 시연 2의 두 판정, 차단 정책 재활성화, 시연 3의 감사 로그까지 한 번 확인한다.
+- 시연 2의 두 판정과 차단 정책 재활성화를 확인한다. 시연 3도 Claude Code에서 세 문장을 실행하고 **허용 → 차단 → 허용**과 파일 접근 감사 기록 세 건을 확인한다.
 - `invalid token`이면 두 장비의 시연용 토큰을 대조한다. 출발지 불일치라면 PC 트래픽 상세 또는 프록시 콘솔에서 실제 노트북 IP를 확인한다. 피드에 요청이 없다면 `/mcp` 상태와 포트 연결 결과를 확인한다.
-- Claude Code에 문제가 있으면 노트북에서 아래 명령으로 같은 MCP 어댑터와 MayAI 정책을 확인한다. PC에서 시연 3은 그대로 진행할 수 있다.
+- 파일 시연 도구가 트래픽 피드에서 차단되면 터미널 E에서 `EnableFileTools`를 실행했는지 확인한다. 호출은 허용됐지만 파일 시연 오류가 표시되면 터미널 B의 `--booth-files`와 파일 시연 토큰, 관리 API와 보호 파일 등록을 확인한다.
+- Claude Code에 문제가 있으면 노트북에서 아래 명령으로 같은 MCP 어댑터와 MayAI 정책을 확인한다.
 
 ```powershell
-@('send_internal_report', 'send_external_report', 'delete_file') | ForEach-Object {
+@('send_internal_report', 'send_external_report', 'delete_file',
+  'read_notes_as_rookie', 'read_payroll_as_rookie', 'read_payroll_as_chief') | ForEach-Object {
   @{ jsonrpc='2.0'; id=1; method='tools/call'; params=@{name=$_; arguments=@{}} } |
     ConvertTo-Json -Depth 4 -Compress
 } | python bridge.py
 ```
+
+노트북 경로를 사용할 수 없으면 MayAI PC의 터미널 E에서 `MAYAI_BOOTH_FILE_TOKEN`을 설정하고 `./examples/booth/operate.ps1 -Action Files`로 시연 3을 진행한다. 파일 접근 API의 **200 → 403 / `MAC_READ_UP_DENY` → 200**이 출력된다.
 
 운영이 끝나면 노트북의 Claude 세션을 종료하고 PC의 프록시·테스트 서버·관리 API를 종료한다. 행사 때문에 열었던 방화벽 규칙이 있으면 제거한다.
 

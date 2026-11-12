@@ -1,29 +1,69 @@
 # Run on the MayAI PC with PowerShell 7.
 param(
-    [Parameter(Mandatory)] [ValidateSet('Configure', 'Files')] [string]$Action,
+    [Parameter(Mandatory)] [ValidateSet('Configure', 'EnableFileTools', 'Files')] [string]$Action,
     [string]$LaptopIp
 )
 
 $ErrorActionPreference = 'Stop'
 $api = 'http://127.0.0.1:8000/api'
-if (-not $env:MAYAI_BOOTH_FILE_TOKEN) { throw 'Set MAYAI_BOOTH_FILE_TOKEN in this terminal.' }
+if ($Action -ne 'EnableFileTools' -and -not $env:MAYAI_BOOTH_FILE_TOKEN) {
+    throw 'Set MAYAI_BOOTH_FILE_TOKEN in this terminal.'
+}
+
+if ($Action -in @('Configure', 'EnableFileTools')) {
+    if (-not $env:MAYAI_ADMIN_KEY) { throw 'Set MAYAI_ADMIN_KEY in this terminal.' }
+    $headers = @{ 'X-Admin-Key' = $env:MAYAI_ADMIN_KEY }
+}
+
+function Add-Record($Path, $Body) {
+    Invoke-RestMethod "$api/$Path" -Method Post -Headers $headers `
+        -ContentType 'application/json; charset=utf-8' -Body ($Body | ConvertTo-Json -Compress) | Out-Null
+}
+
+function Enable-FileToolPolicies {
+    $destination = 'http://127.0.0.1:9100/mcp'
+    $existing = Invoke-RestMethod "$api/policies"
+    foreach ($tool in @(
+        @{ name='신입 요원 메모 읽기 시연'; id='read_notes_as_rookie' },
+        @{ name='신입 요원 급여 파일 읽기 시연'; id='read_payroll_as_rookie' },
+        @{ name='보안 책임자 급여 파일 읽기 시연'; id='read_payroll_as_chief' }
+    )) {
+        $matching = $existing | Where-Object {
+            $_.agent_id -eq 'booth-villain' -and $_.target -eq $destination -and
+            $_.mcp_method -eq 'tools/call' -and $_.tool -eq $tool.id -and $_.action -eq 'ALLOW'
+        }
+        if ($matching | Where-Object enabled) { continue }
+
+        $body = @{ name=$tool.name; agent_id='booth-villain'; destination_url=$destination;
+            mcp_method='tools/call'; tool=$tool.id; action='ALLOW' }
+        if ($matching) {
+            $policy = $matching | Select-Object -First 1
+            $body.name = $policy.name
+            $body.description = $policy.description
+            Invoke-RestMethod "$api/policies/$($policy.policy_id)" -Method Put -Headers $headers `
+                -ContentType 'application/json; charset=utf-8' -Body ($body | ConvertTo-Json -Compress) | Out-Null
+        } else {
+            Add-Record 'policies' $body
+        }
+    }
+    Write-Host '파일 읽기 MCP 도구의 요청 허용 정책 준비 완료'
+}
+
+if ($Action -eq 'EnableFileTools') {
+    Enable-FileToolPolicies
+    return
+}
 
 if ($Action -eq 'Configure') {
-    if (-not ($LaptopIp -and $env:MAYAI_ADMIN_KEY -and $env:MAYAI_BOOTH_TOKEN)) {
-        throw 'Set -LaptopIp, MAYAI_ADMIN_KEY and MAYAI_BOOTH_TOKEN.'
+    if (-not ($LaptopIp -and $env:MAYAI_BOOTH_TOKEN)) {
+        throw 'Set -LaptopIp and MAYAI_BOOTH_TOKEN.'
     }
-    $headers = @{ 'X-Admin-Key' = $env:MAYAI_ADMIN_KEY }
     $agents = Invoke-RestMethod "$api/agents"
     $policies = Invoke-RestMethod "$api/policies"
     $files = Invoke-RestMethod "$api/mac/files"
     $servers = Invoke-RestMethod "$api/mcp/servers"
     if ($agents.Count -or $policies.Count -or $files.files.Count -or $servers.Count -or -not $files.configured) {
         throw 'Use a new empty booth database and set MAYAI_PROTECTED_DIR on the API process.'
-    }
-
-    function Add-Record($Path, $Body) {
-        Invoke-RestMethod "$api/$Path" -Method Post -Headers $headers `
-            -ContentType 'application/json; charset=utf-8' -Body ($Body | ConvertTo-Json -Compress) | Out-Null
     }
 
     Add-Record 'agents' @{ agent_id='booth-villain'; agent_name='악당 에이전트'; token=$env:MAYAI_BOOTH_TOKEN; source_ip=$LaptopIp; clearance=2 }
@@ -43,6 +83,7 @@ if ($Action -eq 'Configure') {
     }
     Add-Record 'mac/files' @{ filename='notes.txt'; level=2 }
     Add-Record 'mac/files' @{ filename='payroll.txt'; level=3 }
+    Enable-FileToolPolicies
     Write-Host '시연용 에이전트, 정책, 파일 등록 완료'
     return
 }
